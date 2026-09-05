@@ -1305,9 +1305,9 @@
             </td>
             <td class="py-3 px-4 text-center">
               <div class="inline-flex items-center justify-center gap-1.5">
-                <button onclick="modificarMedidaBobinaRapida('${item.id}', 'ancho', -0.05)" class="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-700 font-bold text-xs transition cursor-pointer" title="Restar 0.05 m">-</button>
+                <button onclick="modificarMedidaBobinaRapida('${item.id}', 'ancho', -1)" class="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 hover:bg-rose-100 hover:text-rose-700 text-slate-700 font-bold text-xs transition cursor-pointer" title="Restar 1 m">-</button>
                 <button onclick="ajustarMedidaBobinaPrompt('${item.id}', 'ancho', ${item.ancho})" class="px-2 py-0.5 font-semibold text-slate-800 hover:bg-slate-100 rounded text-xs transition cursor-pointer min-w-[3rem] text-center" title="Clic para fijar ancho">${item.ancho} m</button>
-                <button onclick="modificarMedidaBobinaRapida('${item.id}', 'ancho', 0.05)" class="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-bold text-xs transition cursor-pointer" title="Sumar 0.05 m">+</button>
+                <button onclick="modificarMedidaBobinaRapida('${item.id}', 'ancho', 1)" class="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-bold text-xs transition cursor-pointer" title="Sumar 1 m">+</button>
               </div>
             </td>
             <td class="py-3 px-4 text-right space-x-1 whitespace-nowrap">
@@ -1609,7 +1609,19 @@
         if (docId) {
           const bPrev = bobinasList.find(item => item.id === docId);
           await updateDoc(doc(db, COL_BOBINAS, docId), { tipo, largo, ancho });
-          await registrarEnHistorico("Bobina", tipo, `Modificadas medidas de bobina: largo=${largo}m (antes ${bPrev?.largo}m), ancho=${ancho}m (antes ${bPrev?.ancho}m)`);
+
+          const cambios = [];
+          if (bPrev && Number(bPrev.largo) !== largo) {
+            cambios.push(`largo=${largo}m (antes ${bPrev.largo}m)`);
+          }
+          if (bPrev && Number(bPrev.ancho) !== ancho) {
+            cambios.push(`ancho=${ancho}m (antes ${bPrev.ancho}m)`);
+          }
+          const textoHistorico = cambios.length > 0
+            ? `Modificadas medidas de bobina: ${cambios.join(', ')}`
+            : `Modificadas medidas de bobina: largo=${largo}m, ancho=${ancho}m`;
+
+          await registrarEnHistorico("Bobina", tipo, textoHistorico);
           cerrarModal("modal-bobina");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Bobina modificada correctamente', timer: 1400, showConfirmButton: false });
         } else {
@@ -1632,7 +1644,7 @@
 
       try {
         await updateDoc(doc(db, COL_BOBINAS, id), { [campo]: nuevoValor });
-        await registrarEnHistorico("Bobina", b.tipo, `Ajuste rápido de ${campo} en bobina: de ${valorActual}m a ${nuevoValor}m`);
+        await registrarEnHistorico("Bobina", b.tipo, `Modificadas medidas de bobina: ${campo}=${nuevoValor}m (antes ${valorActual}m)`);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -1665,9 +1677,10 @@
 
       if (val !== undefined && val !== '') {
         const nuevoVal = parseFloat(Number(val).toFixed(2));
+        if (nuevoVal === valorActual) return;
         try {
           await updateDoc(doc(db, COL_BOBINAS, id), { [campo]: nuevoVal });
-          await registrarEnHistorico("Bobina", b.tipo, `${nombreCampo} de bobina fijado de ${valorActual}m a ${nuevoVal}m`);
+          await registrarEnHistorico("Bobina", b.tipo, `Modificadas medidas de bobina: ${campo}=${nuevoVal}m (antes ${valorActual}m)`);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
@@ -1763,7 +1776,7 @@
 
       try {
         await updateDoc(doc(db, COL_ROLLOS, id), { cantidad: nuevaCantidad });
-        await registrarEnHistorico("Rollo", r.tipo, `Ajuste rápido de rollos: cantidad modificada de ${r.cantidad} a ${nuevaCantidad} (${delta > 0 ? '+1' : '-1'})`);
+        await registrarEnHistorico("Rollo", r.tipo, `Modificado rollo: cantidad de ${r.cantidad} a ${nuevaCantidad}, ancho ${r.ancho}mm`);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -1791,9 +1804,10 @@
 
       if (cant !== undefined) {
         const nuevaCant = Number(cant);
+        if (nuevaCant === Number(r.cantidad || 0)) return;
         try {
           await updateDoc(doc(db, COL_ROLLOS, id), { cantidad: nuevaCant });
-          await registrarEnHistorico("Rollo", r.tipo, `Cantidad de rollos fijada de ${r.cantidad} a ${nuevaCant}`);
+          await registrarEnHistorico("Rollo", r.tipo, `Modificado rollo: cantidad de ${r.cantidad} a ${nuevaCant}, ancho ${r.ancho}mm`);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
@@ -1901,7 +1915,7 @@
 
       try {
         await updateDoc(doc(db, COL_TABLEROS, id), { cantidad: nuevaCantidad });
-        await registrarEnHistorico("Tablero", `${t.largo}x${t.grosor}mm`, `Ajuste rápido de tableros: cantidad modificada de ${t.cantidad} a ${nuevaCantidad} (${delta > 0 ? '+1' : '-1'})`);
+        await registrarEnHistorico("Tablero", `${t.largo}x${t.grosor}mm`, `Modificado tablero: cantidad de ${t.cantidad} a ${nuevaCantidad}, dimensiones ${t.largo}x${t.grosor}mm`);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -1929,9 +1943,10 @@
 
       if (cant !== undefined) {
         const nuevaCant = Number(cant);
+        if (nuevaCant === Number(t.cantidad || 0)) return;
         try {
           await updateDoc(doc(db, COL_TABLEROS, id), { cantidad: nuevaCant });
-          await registrarEnHistorico("Tablero", `${t.largo}x${t.grosor}mm`, `Cantidad de tableros fijada de ${t.cantidad} a ${nuevaCant}`);
+          await registrarEnHistorico("Tablero", `${t.largo}x${t.grosor}mm`, `Modificado tablero: cantidad de ${t.cantidad} a ${nuevaCant}, dimensiones ${t.largo}x${t.grosor}mm`);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
