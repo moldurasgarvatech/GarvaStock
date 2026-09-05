@@ -236,7 +236,7 @@
             <span id="alert-summary-text" class="text-xs sm:text-sm text-amber-800 ml-1">Hay productos con existencias inferiores al stock mínimo.</span>
           </div>
         </div>
-        <button onclick="switchTab('dashboard')" class="text-xs font-semibold px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition whitespace-nowrap shadow-xs">
+        <button id="btn-alert-details" onclick="switchTab('dashboard')" class="hidden text-xs font-semibold px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition whitespace-nowrap shadow-xs">
           Ver detalles de reposición &rarr;
         </button>
       </div>
@@ -1166,6 +1166,16 @@
         alertSummaryText.textContent = `${listaAlertas.length} artículo(s) bajo el mínimo (${articulosNombres}${listaAlertas.length > 3 ? "..." : ""}). ¡Se aconseja reponer!`;
         globalAlert.classList.remove("hidden");
 
+        const btnAlertDetails = document.getElementById("btn-alert-details");
+        if (btnAlertDetails) {
+          const isInicio = !document.getElementById("tab-dashboard")?.classList.contains("hidden");
+          if (isInicio) {
+            btnAlertDetails.classList.add("hidden");
+          } else {
+            btnAlertDetails.classList.remove("hidden");
+          }
+        }
+
         // Renderizar lista detallada en Dashboard
         let htmlAlertas = "";
         listaAlertas.forEach(item => {
@@ -1951,6 +1961,7 @@
     };
 
     // ==================== RECARGA Y UTILIDADES ====================
+    window.actualizarKPIsYAlertas = actualizarKPIsYAlertas;
     window.recargarTodo = function() {
       actualizarKPIsYAlertas();
       renderInventario();
@@ -1973,6 +1984,16 @@
       const target = document.getElementById('tab-' + tabName);
       if (target) target.classList.remove('hidden');
 
+      // En la ventana de Inicio (dashboard) no debe salir el botón de ver detalles de reposición, solo en las otras ventanas
+      const btnAlertDetails = document.getElementById('btn-alert-details');
+      if (btnAlertDetails) {
+        if (tabName === 'dashboard') {
+          btnAlertDetails.classList.add('hidden');
+        } else {
+          btnAlertDetails.classList.remove('hidden');
+        }
+      }
+
       // Actualizar estilos de los botones de navegación de escritorio
       document.querySelectorAll('.nav-link').forEach(btn => {
         btn.classList.remove('text-garva-700', 'bg-garva-50');
@@ -1989,11 +2010,11 @@
       document.getElementById('mobile-menu').classList.add('hidden');
 
       // Re-renderizar datos de la pestaña activa con los datos más recientes
+      if ((tabName === 'dashboard' || tabName === 'panel') && window.actualizarKPIsYAlertas) window.actualizarKPIsYAlertas();
       if (tabName === 'inventario' && window.renderInventario) window.renderInventario();
       if (tabName === 'bobinas' && window.renderBobinas) window.renderBobinas();
       if (tabName === 'rollos' && window.renderRollos) window.renderRollos();
       if (tabName === 'tableros' && window.renderTableros) window.renderTableros();
-      if (tabName === 'panel' && window.actualizarKPIsYAlertas) window.actualizarKPIsYAlertas();
       if (tabName === 'historico' && window.renderHistorico) window.renderHistorico();
 
       // Scroll top
