@@ -331,11 +331,23 @@
           </button>
         </div>
 
-        <!-- Filtro de Búsqueda -->
-        <div class="relative">
-          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
-          <input type="text" id="filtro-inventario" oninput="filtrarTabla('inventario')" placeholder="Buscar por artículo, color o medidas..."
-            class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700" />
+        <!-- Filtros Inventario (por Artículo y por Color / Medidas) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="relative">
+            <i data-lucide="layers" class="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none"></i>
+            <select id="filtro-inventario-articulo" onchange="filtrarTabla('inventario')"
+              class="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700 cursor-pointer">
+              <option value="">Todos los artículos</option>
+              <option value="Bobina">Bobina</option>
+              <option value="Rollo">Rollo</option>
+              <option value="Tablero">Tablero</option>
+            </select>
+          </div>
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none"></i>
+            <input type="text" id="filtro-inventario-color" oninput="filtrarTabla('inventario')" placeholder="Filtrar por color o medidas..."
+              class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700" />
+          </div>
         </div>
 
         <!-- Tabla de Inventario -->
@@ -344,8 +356,18 @@
             <table class="w-full text-left border-collapse text-xs">
               <thead>
                 <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
-                  <th class="py-3 px-4">Artículo</th>
-                  <th class="py-3 px-4">Color / Medidas</th>
+                  <th class="py-3 px-4 cursor-pointer hover:bg-slate-100 transition select-none" onclick="cambiarOrdenInventario('articulo')" title="Clic para ordenar por Artículo">
+                    <div class="inline-flex items-center gap-1">
+                      <span>Artículo</span>
+                      <span id="sort-icon-inv-articulo" class="text-garva-700 font-bold text-xs"></span>
+                    </div>
+                  </th>
+                  <th class="py-3 px-4 cursor-pointer hover:bg-slate-100 transition select-none" onclick="cambiarOrdenInventario('color')" title="Clic para ordenar por Color / Medidas">
+                    <div class="inline-flex items-center gap-1">
+                      <span>Color / Medidas</span>
+                      <span id="sort-icon-inv-color" class="text-garva-700 font-bold text-xs"> ↑</span>
+                    </div>
+                  </th>
                   <th class="py-3 px-4 text-center">Stock Reposición (Mínimo)</th>
                   <th class="py-3 px-4 text-center">Stock Actual</th>
                   <th class="py-3 px-4 text-center">Estado</th>
@@ -2002,21 +2024,112 @@
 
     // ==================== RENDERS DE TABLAS ====================
 
+    // Helper para obtener la etiqueta de Color / Medidas de un elemento de inventario
+    function obtenerTextoColorMedidas(item) {
+      if ((item.articulo || '').toLowerCase() === 'tablero') {
+        let l = item.largo;
+        let a = item.ancho;
+        let g = item.grosor;
+        if ((l === undefined || g === undefined || l === null || g === null) && item.tipo) {
+          const m = item.tipo.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?))?/i);
+          if (m) {
+            if (m[3]) { l = m[1]; a = m[2]; g = m[3]; }
+            else { l = m[1]; g = m[2]; }
+          }
+        }
+        if (l !== undefined && g !== undefined && l !== null && g !== null) {
+          return (a !== undefined && a !== null && a !== '') ? `${l} x ${a} x ${g} mm` : `${l} x ${g} mm`;
+        }
+        return item.tipo || '-';
+      } else if ((item.articulo || '').toLowerCase() === 'rollo') {
+        const col = item.color || item.tipo || '-';
+        return (item.ancho !== undefined && item.ancho !== null && item.ancho !== '')
+          ? `${col} - ${item.ancho} cm`
+          : col;
+      } else {
+        return item.color || item.tipo || '-';
+      }
+    }
+
+    let ordenInventario = {
+      columna: 'color', // 'color' o 'articulo'
+      direccion: 'asc'  // 'asc' o 'desc'
+    };
+
+    window.cambiarOrdenInventario = function(columna) {
+      if (ordenInventario.columna === columna) {
+        ordenInventario.direccion = ordenInventario.direccion === 'asc' ? 'desc' : 'asc';
+      } else {
+        ordenInventario.columna = columna;
+        ordenInventario.direccion = 'asc';
+      }
+      renderInventario();
+    };
+
     // RENDER: INVENTARIO
     window.renderInventario = function() {
       const tbody = document.getElementById("tabla-inventario-body");
-      const filtro = (document.getElementById("filtro-inventario")?.value || "").toLowerCase();
+      const filtroArticulo = (document.getElementById("filtro-inventario-articulo")?.value || "").toLowerCase().trim();
+      const filtroColor = (document.getElementById("filtro-inventario-color")?.value || document.getElementById("filtro-inventario")?.value || "").toLowerCase().trim();
 
-      const items = inventarioList.filter(item => 
-        (item.articulo || "").toLowerCase().includes(filtro) ||
-        (item.color || item.tipo || "").toLowerCase().includes(filtro) ||
-        (item.largo && String(item.largo).includes(filtro)) ||
-        (item.ancho && String(item.ancho).includes(filtro)) ||
-        (item.grosor && String(item.grosor).includes(filtro))
-      );
+      // 1. Filtrar por Artículo y por Color / Medidas
+      const items = inventarioList.filter(item => {
+        const art = (item.articulo || "").toLowerCase();
+        if (filtroArticulo && art !== filtroArticulo) {
+          return false;
+        }
+
+        if (filtroColor) {
+          const tipoTexto = obtenerTextoColorMedidas(item).toLowerCase();
+          const colorVal = (item.color || "").toLowerCase();
+          const tipoVal = (item.tipo || "").toLowerCase();
+          const largoVal = item.largo ? String(item.largo).toLowerCase() : "";
+          const anchoVal = item.ancho ? String(item.ancho).toLowerCase() : "";
+          const grosorVal = item.grosor ? String(item.grosor).toLowerCase() : "";
+
+          const coincide = tipoTexto.includes(filtroColor) ||
+            colorVal.includes(filtroColor) ||
+            tipoVal.includes(filtroColor) ||
+            largoVal.includes(filtroColor) ||
+            anchoVal.includes(filtroColor) ||
+            grosorVal.includes(filtroColor);
+
+          if (!coincide) return false;
+        }
+
+        return true;
+      });
+
+      // 2. Ordenar (por defecto por Color / Medidas con orden numérico natural)
+      items.sort((a, b) => {
+        let comp = 0;
+        if (ordenInventario.columna === 'articulo') {
+          comp = (a.articulo || '').localeCompare(b.articulo || '', 'es');
+          if (comp === 0) {
+            const labelA = obtenerTextoColorMedidas(a);
+            const labelB = obtenerTextoColorMedidas(b);
+            comp = labelA.localeCompare(labelB, 'es', { numeric: true, sensitivity: 'base' });
+          }
+        } else {
+          // Orden por Color / Medidas
+          const labelA = obtenerTextoColorMedidas(a);
+          const labelB = obtenerTextoColorMedidas(b);
+          comp = labelA.localeCompare(labelB, 'es', { numeric: true, sensitivity: 'base' });
+          if (comp === 0) {
+            comp = (a.articulo || '').localeCompare(b.articulo || '', 'es');
+          }
+        }
+        return ordenInventario.direccion === 'asc' ? comp : -comp;
+      });
+
+      // Actualizar indicadores visuales de ordenación en las cabeceras
+      const iconArt = document.getElementById("sort-icon-inv-articulo");
+      const iconCol = document.getElementById("sort-icon-inv-color");
+      if (iconArt) iconArt.textContent = ordenInventario.columna === 'articulo' ? (ordenInventario.direccion === 'asc' ? ' ↑' : ' ↓') : '';
+      if (iconCol) iconCol.textContent = ordenInventario.columna === 'color' ? (ordenInventario.direccion === 'asc' ? ' ↑' : ' ↓') : '';
 
       if (items.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">No hay registros de inventario que coincidan.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">No hay registros de inventario que coincidan con los filtros.</td></tr>`;
         return;
       }
 
@@ -2025,13 +2138,7 @@
         const reposicion = Number(item.stockreposicion || 0);
         const desglose = calcularStockTotalArticulo(item.articulo, item.color || item.tipo, item.largo, item.ancho, item.grosor);
         const bajoStock = desglose.total < reposicion;
-        const tipoMostrar = item.articulo === 'Tablero'
-          ? ((item.largo !== undefined && item.grosor !== undefined && item.largo !== null && item.grosor !== null)
-              ? (item.ancho ? `${item.largo} x ${item.ancho} x ${item.grosor} mm` : `${item.largo} x ${item.grosor} mm`)
-              : (item.tipo || '-'))
-          : (item.articulo === 'Rollo' && item.ancho !== undefined && item.ancho !== null && item.ancho !== '')
-              ? `${item.color || item.tipo || '-'} - ${item.ancho} cm`
-              : (item.color || item.tipo || '-');
+        const tipoMostrar = obtenerTextoColorMedidas(item);
 
         html += `
           <tr class="hover:bg-slate-50 transition border-b border-slate-100">
@@ -2075,6 +2182,13 @@
       const items = bobinasList.filter(item => {
         const color = (item.color || item.tipo || "").toLowerCase();
         return !filtro || color.includes(filtro);
+      });
+
+      // Ordenar por color siempre
+      items.sort((a, b) => {
+        const colA = (a.color || a.tipo || "").trim();
+        const colB = (b.color || b.tipo || "").trim();
+        return colA.localeCompare(colB, 'es', { sensitivity: 'base' });
       });
 
       if (items.length === 0) {
@@ -2132,6 +2246,17 @@
         return matchColor && matchAncho;
       });
 
+      // Ordenar por color y ancho ascendente siempre
+      items.sort((a, b) => {
+        const colA = (a.color || a.tipo || "").trim();
+        const colB = (b.color || b.tipo || "").trim();
+        const compColor = colA.localeCompare(colB, 'es', { sensitivity: 'base' });
+        if (compColor !== 0) return compColor;
+        const anchoA = (a.ancho !== undefined && a.ancho !== null && a.ancho !== "") ? Number(a.ancho) : 0;
+        const anchoB = (b.ancho !== undefined && b.ancho !== null && b.ancho !== "") ? Number(b.ancho) : 0;
+        return anchoA - anchoB;
+      });
+
       if (items.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">No hay rollos registrados.</td></tr>`;
         return;
@@ -2180,6 +2305,21 @@
         const gStr = String(item.grosor || "");
         const combo = `${lStr}x${aStr}x${gStr} ${lStr} x ${aStr} x ${gStr} ${lStr}x${gStr} ${lStr} ${aStr} ${gStr}`;
         return combo.toLowerCase().includes(filtro) || (item.tipo || "").toLowerCase().includes(filtro);
+      });
+
+      // Ordenar por largo, ancho y grosor descendentes siempre
+      items.sort((a, b) => {
+        const largoA = Number(a.largo || 0);
+        const largoB = Number(b.largo || 0);
+        if (largoB !== largoA) return largoB - largoA;
+
+        const anchoA = (a.ancho !== undefined && a.ancho !== null && a.ancho !== "") ? Number(a.ancho) : 0;
+        const anchoB = (b.ancho !== undefined && b.ancho !== null && b.ancho !== "") ? Number(b.ancho) : 0;
+        if (anchoB !== anchoA) return anchoB - anchoA;
+
+        const grosorA = Number(a.grosor || 0);
+        const grosorB = Number(b.grosor || 0);
+        return grosorB - grosorA;
       });
 
       if (items.length === 0) {
