@@ -2422,33 +2422,36 @@
         articulo,
         stockreposicion
       };
+
       if (articulo.toLowerCase() === "tablero") {
         dataToSave.largo = largo;
         dataToSave.ancho = ancho;
         dataToSave.grosor = grosor;
         dataToSave.tipo = tipo;
-        dataToSave.color = deleteField();
       } else if (articulo.toLowerCase() === "rollo") {
         dataToSave.color = color;
         dataToSave.ancho = ancho;
-        dataToSave.tipo = deleteField();
-        dataToSave.largo = deleteField();
-        dataToSave.grosor = deleteField();
       } else {
         dataToSave.color = color;
-        dataToSave.ancho = deleteField();
-        dataToSave.tipo = deleteField();
-        dataToSave.largo = deleteField();
-        dataToSave.grosor = deleteField();
       }
 
       try {
         if (docId) {
           const anterior = inventarioList.find(i => i.id === docId);
-          if (articulo.toLowerCase() !== "tablero") {
-            dataToSave.tipo = deleteField();
+          const updateData = { ...dataToSave };
+          if (articulo.toLowerCase() === "tablero") {
+            updateData.color = deleteField();
+          } else if (articulo.toLowerCase() === "rollo") {
+            updateData.tipo = deleteField();
+            updateData.largo = deleteField();
+            updateData.grosor = deleteField();
+          } else {
+            updateData.ancho = deleteField();
+            updateData.tipo = deleteField();
+            updateData.largo = deleteField();
+            updateData.grosor = deleteField();
           }
-          await updateDoc(doc(db, COL_INVENTARIO, docId), dataToSave);
+          await updateDoc(doc(db, COL_INVENTARIO, docId), updateData);
           await registrarEnHistorico(articulo, color || tipo, `Modificado inventario: stock reposición de ${anterior?.stockreposicion} a ${stockreposicion}`);
         } else {
           dataToSave.creado = serverTimestamp();
