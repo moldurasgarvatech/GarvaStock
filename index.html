@@ -703,6 +703,11 @@
           <input type="text" id="inv-tipo" required placeholder="Ej: BLANCO, ROBLE, CORAL, etc"
             class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
         </div>
+        <div id="inv-grupo-rollo-ancho" class="hidden">
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Ancho del Rollo (cm)</label>
+          <input type="number" id="inv-rollo-ancho" min="0" step="any" placeholder="Ej: 3 o 4.5"
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
+        </div>
         <div id="inv-grupo-tablero-medidas" class="hidden grid grid-cols-3 gap-2">
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Largo (mm)</label>
@@ -779,24 +784,23 @@
       </div>
       <form id="form-rollo" class="space-y-3">
         <input type="hidden" id="rollo-doc-id" />
+        <input type="hidden" id="rollo-color" />
+        <input type="hidden" id="rollo-ancho" />
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">Color de Rollo (del Inventario)</label>
-          <select id="rollo-color" required
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Rollo (definido en Inventario)</label>
+          <select id="rollo-inventario-select" required onchange="onRolloInventarioSelect(this.value)"
             class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none bg-white text-slate-800">
-            <option value="" disabled selected>Selecciona un color de Rollo...</option>
+            <option value="" disabled selected>Selecciona un rollo del Inventario...</option>
           </select>
         </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Ancho (cm)</label>
-            <input type="number" id="rollo-ancho" required min="0" step="any" placeholder="Ej: 3"
-              class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Cantidad (Uds)</label>
-            <input type="number" id="rollo-cantidad" required min="0" step="1" placeholder="Ej: 15"
-              class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
-          </div>
+        <div id="rollo-detalle-seleccion" class="hidden p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 grid grid-cols-2 gap-2 text-center">
+          <div>Color: <strong id="rollo-preview-color" class="text-slate-900 font-bold"></strong></div>
+          <div>Ancho: <strong id="rollo-preview-ancho" class="text-slate-900 font-bold"></strong> cm</div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Cantidad (Uds)</label>
+          <input type="number" id="rollo-cantidad" required min="0" step="1" placeholder="Ej: 15"
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
         </div>
         <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
           <button type="button" onclick="cerrarModal('modal-rollo')" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg">Cancelar</button>
@@ -1530,6 +1534,97 @@
       }
     }
 
+    // Helper para rollos configurados en inventario (Color y Ancho en cm)
+    function cargarRollosEnSelect(valorSeleccionado = "") {
+      const select = document.getElementById("rollo-inventario-select");
+      if (!select) return;
+
+      const rollos = [];
+      inventarioList
+        .filter(i => (i.articulo || "").trim().toLowerCase() === "rollo")
+        .forEach(i => {
+          const color = (i.color || i.tipo || "").trim();
+          const ancho = (i.ancho !== undefined && i.ancho !== null && i.ancho !== "") ? Number(i.ancho) : null;
+          if (color) {
+            const val = ancho !== null ? `${color}|${ancho}` : `${color}|`;
+            const label = ancho !== null ? `${color} - ${ancho} cm` : color;
+            if (!rollos.some(r => r.val.toLowerCase() === val.toLowerCase())) {
+              rollos.push({ val, color, ancho, label });
+            }
+          }
+        });
+
+      // Ordenar alfabéticamente por color y luego por ancho
+      rollos.sort((a, b) => {
+        const cComp = a.color.localeCompare(b.color);
+        if (cComp !== 0) return cComp;
+        return (a.ancho || 0) - (b.ancho || 0);
+      });
+
+      select.innerHTML = "";
+
+      if (rollos.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.disabled = true;
+        opt.selected = true;
+        opt.textContent = "No hay rollos en Inventario (créalos en Inventario primero)";
+        select.appendChild(opt);
+      } else {
+        const optDefault = document.createElement("option");
+        optDefault.value = "";
+        optDefault.disabled = true;
+        optDefault.selected = !valorSeleccionado;
+        optDefault.textContent = "Selecciona un rollo del Inventario...";
+        select.appendChild(optDefault);
+
+        rollos.forEach(r => {
+          const opt = document.createElement("option");
+          opt.value = r.val;
+          opt.textContent = r.label;
+          if (valorSeleccionado && r.val.toLowerCase() === valorSeleccionado.trim().toLowerCase()) {
+            opt.selected = true;
+          }
+          select.appendChild(opt);
+        });
+      }
+
+      // Si el elemento a editar tiene un valor que no está en la lista actual, incluirlo
+      if (valorSeleccionado && !Array.from(select.options).some(o => o.value.toLowerCase() === valorSeleccionado.trim().toLowerCase())) {
+        const partes = valorSeleccionado.split("|");
+        const c = partes[0] || "";
+        const a = partes[1] || "";
+        const label = a ? `${c} - ${a} cm (actual)` : `${c} (actual)`;
+        const optCustom = new Option(label, valorSeleccionado, true, true);
+        select.appendChild(optCustom);
+      }
+    }
+
+    window.onRolloInventarioSelect = function(val) {
+      const inputColor = document.getElementById("rollo-color");
+      const inputAncho = document.getElementById("rollo-ancho");
+      const detalle = document.getElementById("rollo-detalle-seleccion");
+      const prevColor = document.getElementById("rollo-preview-color");
+      const prevAncho = document.getElementById("rollo-preview-ancho");
+
+      if (!val) {
+        if (inputColor) inputColor.value = "";
+        if (inputAncho) inputAncho.value = "";
+        if (detalle) detalle.classList.add("hidden");
+        return;
+      }
+
+      const partes = val.split("|");
+      const c = partes[0] || "";
+      const a = partes[1] || "";
+
+      if (inputColor) inputColor.value = c;
+      if (inputAncho) inputAncho.value = a;
+      if (prevColor) prevColor.textContent = c;
+      if (prevAncho) prevAncho.textContent = a ? `${a}` : "-";
+      if (detalle) detalle.classList.remove("hidden");
+    };
+
     window.onTableroMedidaSelect = function(val) {
       const inputLargo = document.getElementById("tablero-largo");
       const inputAncho = document.getElementById("tablero-ancho");
@@ -1561,30 +1656,49 @@
     };
 
     window.onInventarioArticuloChange = function() {
-      const art = (document.getElementById("inv-articulo")?.value || "").trim();
+      const art = (document.getElementById("inv-articulo")?.value || "").trim().toLowerCase();
       const grupoTipo = document.getElementById("inv-grupo-tipo");
       const labelTipo = document.getElementById("inv-label-tipo");
+      const grupoRolloAncho = document.getElementById("inv-grupo-rollo-ancho");
+      const inputRolloAncho = document.getElementById("inv-rollo-ancho");
       const grupoTablero = document.getElementById("inv-grupo-tablero-medidas");
       const inputTipo = document.getElementById("inv-tipo");
       const inputLargo = document.getElementById("inv-tablero-largo");
       const inputAncho = document.getElementById("inv-tablero-ancho");
       const inputGrosor = document.getElementById("inv-tablero-grosor");
 
-      if (art.toLowerCase() === "tablero") {
+      if (art === "tablero") {
         if (grupoTipo) grupoTipo.classList.add("hidden");
+        if (grupoRolloAncho) grupoRolloAncho.classList.add("hidden");
         if (grupoTablero) grupoTablero.classList.remove("hidden");
         if (inputTipo) inputTipo.removeAttribute("required");
+        if (inputRolloAncho) inputRolloAncho.removeAttribute("required");
         if (inputLargo) inputLargo.setAttribute("required", "required");
         if (inputAncho) inputAncho.setAttribute("required", "required");
         if (inputGrosor) inputGrosor.setAttribute("required", "required");
+      } else if (art === "rollo") {
+        if (grupoTipo) grupoTipo.classList.remove("hidden");
+        if (labelTipo) {
+          labelTipo.textContent = "Color";
+          inputTipo.placeholder = "Ej: BLANCO, ROBLE, NOGAL, etc";
+        }
+        if (grupoRolloAncho) grupoRolloAncho.classList.remove("hidden");
+        if (grupoTablero) grupoTablero.classList.add("hidden");
+        if (inputTipo) inputTipo.setAttribute("required", "required");
+        if (inputRolloAncho) inputRolloAncho.setAttribute("required", "required");
+        if (inputLargo) inputLargo.removeAttribute("required");
+        if (inputAncho) inputAncho.removeAttribute("required");
+        if (inputGrosor) inputGrosor.removeAttribute("required");
       } else {
         if (grupoTipo) grupoTipo.classList.remove("hidden");
         if (labelTipo) {
           labelTipo.textContent = "Color";
           inputTipo.placeholder = "Ej: BLANCO, ROBLE, NOGAL, etc";
         }
+        if (grupoRolloAncho) grupoRolloAncho.classList.add("hidden");
         if (grupoTablero) grupoTablero.classList.add("hidden");
         if (inputTipo) inputTipo.setAttribute("required", "required");
+        if (inputRolloAncho) inputRolloAncho.removeAttribute("required");
         if (inputLargo) inputLargo.removeAttribute("required");
         if (inputAncho) inputAncho.removeAttribute("required");
         if (inputGrosor) inputGrosor.removeAttribute("required");
@@ -1596,12 +1710,18 @@
       const artNorm = (articulo || "").trim().toLowerCase();
       const valNorm = (tipoOColor || "").trim().toLowerCase();
 
-      // Cantidad en rollos
+      // Cantidad en rollos (evaluando Color y opcionalmente Ancho si se especifica)
       let cantRollos = 0;
       if (artNorm === "rollo" || !artNorm) {
         rollosList.forEach(r => {
           const rColor = (r.color || r.tipo || "").trim().toLowerCase();
-          if (!valNorm || rColor === valNorm) {
+          const rAncho = (r.ancho !== undefined && r.ancho !== null && r.ancho !== "") ? Number(r.ancho) : null;
+          const targetAncho = (ancho !== undefined && ancho !== null && ancho !== "") ? Number(ancho) : null;
+
+          const matchColor = !valNorm || rColor === valNorm;
+          const matchAncho = targetAncho === null || rAncho === targetAncho;
+
+          if (matchColor && matchAncho) {
             cantRollos += Number(r.cantidad || 0);
           }
         });
@@ -1683,7 +1803,9 @@
           ? ((item.largo !== undefined && item.grosor !== undefined && item.largo !== null && item.grosor !== null)
               ? (item.ancho ? `${item.largo} x ${item.ancho} x ${item.grosor} mm` : `${item.largo} x ${item.grosor} mm`)
               : (item.tipo || '-'))
-          : (item.color || item.tipo || '-');
+          : (item.articulo === 'Rollo' && item.ancho !== undefined && item.ancho !== null && item.ancho !== '')
+              ? `${item.color || item.tipo || '-'} - ${item.ancho} cm`
+              : (item.color || item.tipo || '-');
         
         if (desglose.total < reposicion) {
           listaAlertas.push({
@@ -1767,6 +1889,117 @@
       lucide.createIcons();
     }
 
+    // ==================== WEBHOOK DE ALERTA DE STOCK (MAKE.COM) ====================
+    const URL_MAKE_WEBHOOK = "https://hook.eu1.make.com/jba2xcyb3jyti2imioiw9t6w6fk3oy7h";
+    const cooldownAlertasWebhook = new Map();
+
+    async function comprobarYEnviarAlertaWebhook(articulo, color, largo, ancho, grosor) {
+      try {
+        const artNorm = (articulo || '').trim().toLowerCase();
+        const colorNorm = (color || '').trim().toLowerCase();
+        const targetAncho = (ancho !== undefined && ancho !== null && ancho !== '') ? Number(ancho) : null;
+        const targetLargo = (largo !== undefined && largo !== null && largo !== '') ? Number(largo) : null;
+        const targetGrosor = (grosor !== undefined && grosor !== null && grosor !== '') ? Number(grosor) : null;
+
+        // 1. Buscar en inventario el artículo con su stock de reposición configurado
+        let invItem = null;
+        if (artNorm === 'bobina') {
+          invItem = inventarioList.find(i => (i.articulo || '').toLowerCase() === 'bobina' && (i.color || i.tipo || '').trim().toLowerCase() === colorNorm);
+        } else if (artNorm === 'rollo') {
+          invItem = inventarioList.find(i => 
+            (i.articulo || '').toLowerCase() === 'rollo' && 
+            (i.color || i.tipo || '').trim().toLowerCase() === colorNorm && 
+            (targetAncho !== null ? Number(i.ancho) === targetAncho : true)
+          );
+        } else if (artNorm === 'tablero') {
+          invItem = inventarioList.find(i => {
+            if ((i.articulo || '').toLowerCase() !== 'tablero') return false;
+            const sameL = Number(i.largo) === targetLargo;
+            const sameG = Number(i.grosor) === targetGrosor;
+            const iAncho = (i.ancho !== undefined && i.ancho !== null && i.ancho !== '') ? Number(i.ancho) : null;
+            const sameA = (targetAncho === null && iAncho === null) || (targetAncho !== null && iAncho === targetAncho);
+            return sameL && sameG && sameA;
+          });
+        }
+
+        if (!invItem) return;
+        const reposicion = Number(invItem.stockreposicion || 0);
+        if (reposicion <= 0) return;
+
+        // 2. Calcular stock actual
+        const desglose = calcularStockTotalArticulo(articulo, color, largo, ancho, grosor);
+        const cantidadActual = desglose.total;
+
+        // 3. Comprobar si está bajo mínimos de reposición
+        if (cantidadActual < reposicion) {
+          let tipoStr = '';
+          if (artNorm === 'bobina') {
+            tipoStr = color || invItem.color || invItem.tipo || 'Sin color';
+          } else if (artNorm === 'rollo') {
+            tipoStr = targetAncho !== null ? `${color || invItem.color || invItem.tipo} - ${targetAncho} cm` : `${color || invItem.color || invItem.tipo}`;
+          } else if (artNorm === 'tablero') {
+            tipoStr = targetAncho !== null 
+              ? `${targetLargo} x ${targetAncho} x ${targetGrosor} mm` 
+              : `${targetLargo} x ${targetGrosor} mm`;
+          }
+
+          const ahora = Date.now();
+          const cooldownKey = `${artNorm}_${tipoStr}_${cantidadActual}`;
+          const itemKey = `${artNorm}_${tipoStr}`;
+
+          // Evitar envíos duplicados del mismo estado en 5 segundos o llamadas en ráfaga en 1.5s
+          if (cooldownAlertasWebhook.has(cooldownKey) && (ahora - cooldownAlertasWebhook.get(cooldownKey) < 5000)) {
+            return;
+          }
+          if (cooldownAlertasWebhook.has(itemKey) && (ahora - cooldownAlertasWebhook.get(itemKey) < 1500)) {
+            return;
+          }
+          cooldownAlertasWebhook.set(cooldownKey, ahora);
+          cooldownAlertasWebhook.set(itemKey, ahora);
+
+          // Obtener lista de destinatarios actualizada desde la configuración
+          let destinatarios = Array.isArray(mailsAlertaStockList) ? [...mailsAlertaStockList] : [];
+          if (destinatarios.length === 0) {
+            try {
+              const cfgSnap = await getDocs(collection(db, COL_CONFIGURACION));
+              if (!cfgSnap.empty) {
+                const foundDoc = cfgSnap.docs.find(d => d.data().mailsalertastock !== undefined) || cfgSnap.docs[0];
+                const d = foundDoc.data();
+                if (Array.isArray(d.mailsalertastock)) {
+                  destinatarios = [...d.mailsalertastock];
+                  mailsAlertaStockList = destinatarios;
+                }
+              }
+            } catch (e) {
+              console.warn("No se pudieron recargar destinatarios:", e);
+            }
+          }
+
+          const articuloCapitalizado = articulo.charAt(0).toUpperCase() + articulo.slice(1).toLowerCase();
+          const payload = {
+            destinatarios,
+            articulo: articuloCapitalizado,
+            tipo: tipoStr,
+            cantidad_actual: cantidadActual
+          };
+
+          const res = await fetch(URL_MAKE_WEBHOOK, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          console.log('Webhook de alerta de stock enviado a Make.com:', payload, 'Status:', res.status);
+          await registrarEnHistorico("Alerta Webhook", tipoStr, `Notificación de stock mínimo enviada a Make.com (${articuloCapitalizado}: ${cantidadActual} uds)`);
+        }
+      } catch (err) {
+        console.error('Error al comprobar/enviar alerta a Make.com:', err);
+      }
+    }
+    window.comprobarYEnviarAlertaWebhook = comprobarYEnviarAlertaWebhook;
+
     // ==================== RENDERS DE TABLAS ====================
 
     // RENDER: INVENTARIO
@@ -1796,7 +2029,9 @@
           ? ((item.largo !== undefined && item.grosor !== undefined && item.largo !== null && item.grosor !== null)
               ? (item.ancho ? `${item.largo} x ${item.ancho} x ${item.grosor} mm` : `${item.largo} x ${item.grosor} mm`)
               : (item.tipo || '-'))
-          : (item.color || item.tipo || '-');
+          : (item.articulo === 'Rollo' && item.ancho !== undefined && item.ancho !== null && item.ancho !== '')
+              ? `${item.color || item.tipo || '-'} - ${item.ancho} cm`
+              : (item.color || item.tipo || '-');
 
         html += `
           <tr class="hover:bg-slate-50 transition border-b border-slate-100">
@@ -1920,7 +2155,7 @@
               <button onclick="editarRolloCompleto('${item.id}')" class="p-1.5 text-slate-500 hover:text-garva-700 hover:bg-garva-50 rounded" title="Editar">
                 <i data-lucide="edit-3" class="w-4 h-4"></i>
               </button>
-              <button onclick="eliminarRollo('${item.id}', '${escapeQuotes(colorDisplay)}')" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="Eliminar">
+              <button onclick="eliminarRollo('${item.id}', '${escapeQuotes(colorDisplay)}', '${item.ancho || ''}')" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="Eliminar">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
               </button>
             </td>
@@ -2093,6 +2328,7 @@
     window.abrirModalInventario = function() {
       document.getElementById("form-inventario").reset();
       document.getElementById("inv-doc-id").value = "";
+      document.getElementById("inv-rollo-ancho").value = "";
       const artSelect = document.getElementById("inv-articulo");
       while (artSelect.options.length > 4) {
         artSelect.remove(artSelect.options.length - 1);
@@ -2142,6 +2378,9 @@
         document.getElementById("inv-tablero-largo").value = largo ?? "";
         document.getElementById("inv-tablero-ancho").value = ancho ?? "";
         document.getElementById("inv-tablero-grosor").value = grosor ?? "";
+      } else if ((item.articulo || "").toLowerCase() === "rollo") {
+        document.getElementById("inv-tipo").value = item.color || item.tipo || "";
+        document.getElementById("inv-rollo-ancho").value = item.ancho ?? "";
       } else {
         document.getElementById("inv-tipo").value = item.color || item.tipo || "";
       }
@@ -2171,6 +2410,10 @@
         ancho = Number(document.getElementById("inv-tablero-ancho").value);
         grosor = Number(document.getElementById("inv-tablero-grosor").value);
         tipo = `${largo} x ${ancho} x ${grosor} mm`;
+      } else if (articulo.toLowerCase() === "rollo") {
+        color = document.getElementById("inv-tipo").value.trim();
+        ancho = Number(document.getElementById("inv-rollo-ancho").value);
+        tipo = `${color} - ${ancho} cm`;
       } else {
         color = document.getElementById("inv-tipo").value.trim();
       }
@@ -2184,8 +2427,19 @@
         dataToSave.ancho = ancho;
         dataToSave.grosor = grosor;
         dataToSave.tipo = tipo;
+        dataToSave.color = deleteField();
+      } else if (articulo.toLowerCase() === "rollo") {
+        dataToSave.color = color;
+        dataToSave.ancho = ancho;
+        dataToSave.tipo = deleteField();
+        dataToSave.largo = deleteField();
+        dataToSave.grosor = deleteField();
       } else {
         dataToSave.color = color;
+        dataToSave.ancho = deleteField();
+        dataToSave.tipo = deleteField();
+        dataToSave.largo = deleteField();
+        dataToSave.grosor = deleteField();
       }
 
       try {
@@ -2265,6 +2519,12 @@
       try {
         if (docId) {
           const bPrev = bobinasList.find(item => item.id === docId);
+          const colorAnterior = bPrev?.color || bPrev?.tipo;
+          if (bPrev) {
+            bPrev.color = color;
+            bPrev.largo = largo;
+            bPrev.ancho = ancho;
+          }
           await updateDoc(doc(db, COL_BOBINAS, docId), { color, largo, ancho, tipo: deleteField() });
 
           const cambios = [];
@@ -2281,11 +2541,17 @@
           await registrarEnHistorico("Bobina", color, textoHistorico);
           cerrarModal("modal-bobina");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Bobina modificada correctamente', timer: 1400, showConfirmButton: false });
+          if (colorAnterior && colorAnterior.toLowerCase() !== color.toLowerCase()) {
+            await comprobarYEnviarAlertaWebhook("Bobina", colorAnterior, null, null, null);
+          }
+          await comprobarYEnviarAlertaWebhook("Bobina", color, null, null, null);
         } else {
+          bobinasList.push({ color, largo, ancho });
           await addDoc(collection(db, COL_BOBINAS), { color, largo, ancho, creado: serverTimestamp() });
           await registrarEnHistorico("Bobina", color, `Añadida nueva bobina: ${largo}m x ${ancho}m`);
           cerrarModal("modal-bobina");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Bobina registrada correctamente', timer: 1400, showConfirmButton: false });
+          await comprobarYEnviarAlertaWebhook("Bobina", color, null, null, null);
         }
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
@@ -2303,6 +2569,7 @@
       try {
         await updateDoc(doc(db, COL_BOBINAS, id), { [campo]: nuevoValor });
         await registrarEnHistorico("Bobina", colorVal, `Modificadas medidas de bobina: ${campo}=${nuevoValor}m (antes ${valorActual}m)`);
+        await comprobarYEnviarAlertaWebhook("Bobina", colorVal, null, null, null);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -2340,6 +2607,7 @@
         try {
           await updateDoc(doc(db, COL_BOBINAS, id), { [campo]: nuevoVal });
           await registrarEnHistorico("Bobina", colorVal, `Modificadas medidas de bobina: ${campo}=${nuevoVal}m (antes ${valorActual}m)`);
+          await comprobarYEnviarAlertaWebhook("Bobina", colorVal, null, null, null);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
@@ -2359,9 +2627,14 @@
 
       if (res.isConfirmed) {
         try {
+          const b = bobinasList.find(item => item.id === id);
+          const colorVal = color || b?.color || b?.tipo || '';
+          const idx = bobinasList.findIndex(item => item.id === id);
+          if (idx !== -1) bobinasList.splice(idx, 1);
           await deleteDoc(doc(db, COL_BOBINAS, id));
-          await registrarEnHistorico("Bobina", color, `Eliminada bobina del almacén`);
+          await registrarEnHistorico("Bobina", colorVal, `Eliminada bobina del almacén`);
           Swal.fire({ icon: 'success', title: 'Eliminada', timer: 1200, showConfirmButton: false });
+          await comprobarYEnviarAlertaWebhook("Bobina", colorVal, null, null, null);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
@@ -2372,7 +2645,11 @@
     window.abrirModalRollo = function() {
       document.getElementById("form-rollo").reset();
       document.getElementById("rollo-doc-id").value = "";
-      cargarTiposEnSelect("Rollo", "rollo-color");
+      document.getElementById("rollo-color").value = "";
+      document.getElementById("rollo-ancho").value = "";
+      const detalle = document.getElementById("rollo-detalle-seleccion");
+      if (detalle) detalle.classList.add("hidden");
+      cargarRollosEnSelect();
       document.getElementById("modal-rollo-title").textContent = "Añadir Rollo a Stock";
       document.getElementById("modal-rollo").classList.remove("hidden");
     };
@@ -2381,8 +2658,11 @@
       const r = rollosList.find(item => item.id === id);
       if (!r) return;
       document.getElementById("rollo-doc-id").value = r.id;
-      cargarTiposEnSelect("Rollo", "rollo-color", r.color || r.tipo || "");
-      document.getElementById("rollo-ancho").value = r.ancho || "";
+      const colorVal = r.color || r.tipo || "";
+      const anchoVal = (r.ancho !== undefined && r.ancho !== null && r.ancho !== "") ? r.ancho : "";
+      const valCombined = `${colorVal}|${anchoVal}`;
+      cargarRollosEnSelect(valCombined);
+      onRolloInventarioSelect(valCombined);
       document.getElementById("rollo-cantidad").value = r.cantidad || 0;
       document.getElementById("modal-rollo-title").textContent = "Modificar Rollo";
       document.getElementById("modal-rollo").classList.remove("hidden");
@@ -2395,13 +2675,30 @@
       const ancho = Number(document.getElementById("rollo-ancho").value);
       const cantidad = Number(document.getElementById("rollo-cantidad").value);
 
+      if (!color) {
+        Swal.fire('Atención', 'Por favor selecciona un rollo del Inventario.', 'warning');
+        return;
+      }
+
       try {
         if (docId) {
           const prev = rollosList.find(i => i.id === docId);
+          const cantAnterior = prev?.cantidad;
+          const colorAnterior = prev?.color || prev?.tipo;
+          const anchoAnterior = prev?.ancho;
+          if (prev) {
+            prev.color = color;
+            prev.ancho = ancho;
+            prev.cantidad = cantidad;
+          }
           await updateDoc(doc(db, COL_ROLLOS, docId), { color, ancho, cantidad, tipo: deleteField() });
-          await registrarEnHistorico("Rollo", color, `Modificado rollo: cantidad de ${prev?.cantidad} a ${cantidad}, ancho ${ancho}cm`);
+          await registrarEnHistorico("Rollo", color, `Modificado rollo: cantidad de ${cantAnterior} a ${cantidad}, ancho ${ancho}cm`);
           cerrarModal("modal-rollo");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Rollo modificado correctamente', timer: 1400, showConfirmButton: false });
+          if (colorAnterior && (colorAnterior.toLowerCase() !== color.toLowerCase() || Number(anchoAnterior) !== Number(ancho))) {
+            await comprobarYEnviarAlertaWebhook("Rollo", colorAnterior, null, anchoAnterior, null);
+          }
+          await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
         } else {
           // Si ya existe con ese tamaño (color y ancho), se suma la cantidad
           const existente = rollosList.find(r => 
@@ -2410,16 +2707,21 @@
           );
 
           if (existente) {
+            const cantAnterior = existente.cantidad;
             const nuevaCantidad = Number(existente.cantidad || 0) + cantidad;
+            existente.cantidad = nuevaCantidad;
             await updateDoc(doc(db, COL_ROLLOS, existente.id), { color, cantidad: nuevaCantidad, tipo: deleteField() });
-            await registrarEnHistorico("Rollo", color, `Incrementado stock de rollos (${ancho}cm): de ${existente.cantidad} a ${nuevaCantidad} (+${cantidad} uds)`);
+            await registrarEnHistorico("Rollo", color, `Incrementado stock de rollos (${ancho}cm): de ${cantAnterior} a ${nuevaCantidad} (+${cantidad} uds)`);
             cerrarModal("modal-rollo");
             Swal.fire({ icon: 'success', title: 'Stock Actualizado', text: `Ya existía con ancho ${ancho}cm. Se sumaron ${cantidad} uds (Total: ${nuevaCantidad})`, timer: 2000, showConfirmButton: false });
+            await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
           } else {
+            rollosList.push({ color, ancho, cantidad });
             await addDoc(collection(db, COL_ROLLOS), { color, ancho, cantidad, creado: serverTimestamp() });
             await registrarEnHistorico("Rollo", color, `Añadido nuevo stock de rollos: ${cantidad} uds (${ancho}cm)`);
             cerrarModal("modal-rollo");
             Swal.fire({ icon: 'success', title: 'Guardado', text: 'Rollo registrado correctamente', timer: 1400, showConfirmButton: false });
+            await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
           }
         }
       } catch (err) {
@@ -2433,10 +2735,14 @@
       const nuevaCantidad = Math.max(0, Number(r.cantidad || 0) + delta);
       if (nuevaCantidad === r.cantidad) return;
 
+      const cantAnterior = r.cantidad;
       const colorVal = r.color || r.tipo || '';
+      const anchoVal = r.ancho;
+      r.cantidad = nuevaCantidad;
       try {
         await updateDoc(doc(db, COL_ROLLOS, id), { cantidad: nuevaCantidad });
-        await registrarEnHistorico("Rollo", colorVal, `Modificado rollo: cantidad de ${r.cantidad} a ${nuevaCantidad}, ancho ${r.ancho}cm`);
+        await registrarEnHistorico("Rollo", colorVal, `Modificado rollo: cantidad de ${cantAnterior} a ${nuevaCantidad}, ancho ${r.ancho}cm`);
+        await comprobarYEnviarAlertaWebhook("Rollo", colorVal, null, anchoVal, null);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -2447,8 +2753,9 @@
       if (!r) return;
 
       const colorVal = r.color || r.tipo || '';
+      const anchoVal = r.ancho ? ` - ${r.ancho} cm` : '';
       const { value: cant } = await Swal.fire({
-        title: `Modificar cantidad de rollos (${colorVal})`,
+        title: `Modificar cantidad de rollos (${colorVal}${anchoVal})`,
         input: 'number',
         inputLabel: 'Introduce la nueva cantidad exacta de rollos:',
         inputValue: cantidadActual,
@@ -2466,19 +2773,24 @@
       if (cant !== undefined) {
         const nuevaCant = Number(cant);
         if (nuevaCant === Number(r.cantidad || 0)) return;
+        const cantAnterior = r.cantidad;
+        const rollAncho = r.ancho;
+        r.cantidad = nuevaCant;
         try {
           await updateDoc(doc(db, COL_ROLLOS, id), { cantidad: nuevaCant });
-          await registrarEnHistorico("Rollo", colorVal, `Modificado rollo: cantidad de ${r.cantidad} a ${nuevaCant}, ancho ${r.ancho}cm`);
+          await registrarEnHistorico("Rollo", colorVal, `Modificado rollo: cantidad de ${cantAnterior} a ${nuevaCant}, ancho ${r.ancho}cm`);
+          await comprobarYEnviarAlertaWebhook("Rollo", colorVal, null, rollAncho, null);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
       }
     };
 
-    window.eliminarRollo = async function(id, color) {
+    window.eliminarRollo = async function(id, color, ancho) {
+      const desc = ancho ? `color "${color}" y ancho ${ancho}cm` : `color "${color}"`;
       const res = await Swal.fire({
         title: '¿Eliminar rollo?',
-        text: `Se borrará el registro del rollo de color "${color}"`,
+        text: `Se borrará el registro del rollo de ${desc}`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#e11d48',
@@ -2488,9 +2800,12 @@
 
       if (res.isConfirmed) {
         try {
+          const idx = rollosList.findIndex(item => item.id === id);
+          if (idx !== -1) rollosList.splice(idx, 1);
           await deleteDoc(doc(db, COL_ROLLOS, id));
-          await registrarEnHistorico("Rollo", color, `Eliminado registro de rollos`);
+          await registrarEnHistorico("Rollo", color, `Eliminado registro de rollos (${ancho ? ancho + 'cm' : ''})`);
           Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1200, showConfirmButton: false });
+          await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
@@ -2556,10 +2871,24 @@
       try {
         if (docId) {
           const prev = tablerosList.find(i => i.id === docId);
+          const cantAnterior = prev?.cantidad;
+          const prevLargo = prev?.largo;
+          const prevAncho = prev?.ancho;
+          const prevGrosor = prev?.grosor;
+          if (prev) {
+            prev.largo = largo;
+            prev.ancho = ancho;
+            prev.grosor = grosor;
+            prev.cantidad = cantidad;
+          }
           await updateDoc(doc(db, COL_TABLEROS, docId), dataToSave);
-          await registrarEnHistorico("Tablero", dimLabel, `Modificado tablero: cantidad de ${prev?.cantidad} a ${cantidad}, dimensiones ${dimLabel}`);
+          await registrarEnHistorico("Tablero", dimLabel, `Modificado tablero: cantidad de ${cantAnterior} a ${cantidad}, dimensiones ${dimLabel}`);
           cerrarModal("modal-tablero");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Tablero modificado correctamente', timer: 1400, showConfirmButton: false });
+          if (prevLargo && (Number(prevLargo) !== Number(largo) || Number(prevGrosor) !== Number(grosor) || Number(prevAncho) !== Number(ancho))) {
+            await comprobarYEnviarAlertaWebhook("Tablero", null, prevLargo, prevAncho, prevGrosor);
+          }
+          await comprobarYEnviarAlertaWebhook("Tablero", null, largo, ancho, grosor);
         } else {
           // Si ya existe con ese tamaño (largo, ancho y grosor), se suma la cantidad
           const existente = tablerosList.find(t => {
@@ -2571,17 +2900,22 @@
           });
 
           if (existente) {
+            const cantAnterior = existente.cantidad;
             const nuevaCantidad = Number(existente.cantidad || 0) + cantidad;
+            existente.cantidad = nuevaCantidad;
             await updateDoc(doc(db, COL_TABLEROS, existente.id), { cantidad: nuevaCantidad, tipo });
-            await registrarEnHistorico("Tablero", dimLabel, `Incrementado stock de tableros (${dimLabel}): de ${existente.cantidad} a ${nuevaCantidad} (+${cantidad} uds)`);
+            await registrarEnHistorico("Tablero", dimLabel, `Incrementado stock de tableros (${dimLabel}): de ${cantAnterior} a ${nuevaCantidad} (+${cantidad} uds)`);
             cerrarModal("modal-tablero");
             Swal.fire({ icon: 'success', title: 'Stock Actualizado', text: `Ya existía con medidas ${dimLabel}. Se sumaron ${cantidad} uds (Total: ${nuevaCantidad})`, timer: 2000, showConfirmButton: false });
+            await comprobarYEnviarAlertaWebhook("Tablero", null, largo, ancho, grosor);
           } else {
             dataToSave.creado = serverTimestamp();
+            tablerosList.push({ largo, ancho, grosor, cantidad });
             await addDoc(collection(db, COL_TABLEROS), dataToSave);
             await registrarEnHistorico("Tablero", dimLabel, `Añadido nuevo stock de tableros: ${cantidad} uds (${dimLabel})`);
             cerrarModal("modal-tablero");
             Swal.fire({ icon: 'success', title: 'Guardado', text: 'Tablero registrado correctamente', timer: 1400, showConfirmButton: false });
+            await comprobarYEnviarAlertaWebhook("Tablero", null, largo, ancho, grosor);
           }
         }
       } catch (err) {
@@ -2599,13 +2933,20 @@
       const nuevaCantidad = Math.max(0, Number(t.cantidad || 0) + delta);
       if (nuevaCantidad === t.cantidad) return;
 
+      const cantAnterior = t.cantidad;
+      const tLargo = t.largo;
+      const tAncho = t.ancho;
+      const tGrosor = t.grosor;
+      t.cantidad = nuevaCantidad;
+
       const dimLabel = (t.ancho !== undefined && t.ancho !== null && t.ancho !== '') 
         ? `${t.largo}x${t.ancho}x${t.grosor}mm` 
         : `${t.largo}x${t.grosor}mm`;
 
       try {
         await updateDoc(doc(db, COL_TABLEROS, id), { cantidad: nuevaCantidad });
-        await registrarEnHistorico("Tablero", dimLabel, `Modificado tablero: cantidad de ${t.cantidad} a ${nuevaCantidad}, dimensiones ${dimLabel}`);
+        await registrarEnHistorico("Tablero", dimLabel, `Modificado tablero: cantidad de ${cantAnterior} a ${nuevaCantidad}, dimensiones ${dimLabel}`);
+        await comprobarYEnviarAlertaWebhook("Tablero", null, tLargo, tAncho, tGrosor);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -2642,9 +2983,15 @@
       if (cant !== undefined) {
         const nuevaCant = Number(cant);
         if (nuevaCant === Number(t.cantidad || 0)) return;
+        const cantAnterior = t.cantidad;
+        const tLargo = t.largo;
+        const tAncho = t.ancho;
+        const tGrosor = t.grosor;
+        t.cantidad = nuevaCant;
         try {
           await updateDoc(doc(db, COL_TABLEROS, id), { cantidad: nuevaCant });
-          await registrarEnHistorico("Tablero", dimLabel, `Modificado tablero: cantidad de ${t.cantidad} a ${nuevaCant}, dimensiones ${dimLabel}`);
+          await registrarEnHistorico("Tablero", dimLabel, `Modificado tablero: cantidad de ${cantAnterior} a ${nuevaCant}, dimensiones ${dimLabel}`);
+          await comprobarYEnviarAlertaWebhook("Tablero", null, tLargo, tAncho, tGrosor);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
@@ -2668,9 +3015,18 @@
 
       if (res.isConfirmed) {
         try {
+          const t = tablerosList.find(item => item.id === id);
+          const tLargo = t?.largo;
+          const tAncho = t?.ancho;
+          const tGrosor = t?.grosor;
+          const idx = tablerosList.findIndex(item => item.id === id);
+          if (idx !== -1) tablerosList.splice(idx, 1);
           await deleteDoc(doc(db, COL_TABLEROS, id));
           await registrarEnHistorico("Tablero", descripcion || '', `Eliminado registro de tableros`);
           Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1200, showConfirmButton: false });
+          if (tLargo && tGrosor) {
+            await comprobarYEnviarAlertaWebhook("Tablero", null, tLargo, tAncho, tGrosor);
+          }
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
