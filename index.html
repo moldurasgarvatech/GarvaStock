@@ -1064,6 +1064,9 @@
       query, 
       where, 
       orderBy, 
+      limit,
+      startAfter,
+      startAt,
       onSnapshot, 
       serverTimestamp 
     } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -1114,6 +1117,17 @@
 
     // Subscripciones activas para tiempo real
     let unsubscribes = [];
+    let unsubTerminado = null;
+    let unsubHistorico = null;
+    let unsubUsuarios = null;
+    let unsubConfig = null;
+    let listenersPausadosPorInactividad = false;
+    let timeoutPausarListeners = null;
+
+    // Estado para paginación eficiente de Histórico bajo demanda (limit 20)
+    let historicoDocsSnapshot = []; // Guarda los DocumentSnapshots de la página actual
+    let historicoPageCursors = [null]; // historicoPageCursors[p] = DocumentSnapshot previo a la página p (1-indexed)
+    let cargandoHistorico = false;
 
     // ==================== AUTENTICACIÓN ====================
     const authContainer = document.getElementById("auth-container");
@@ -1224,8 +1238,13 @@
       });
 
       if (res.isConfirmed) {
+        if (timeoutPausarListeners) { clearTimeout(timeoutPausarListeners); timeoutPausarListeners = null; }
+        listenersPausadosPorInactividad = false;
         unsubscribes.forEach(unsub => unsub && unsub());
         unsubscribes = [];
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
         await signOut(auth);
       }
     });
@@ -1240,8 +1259,13 @@
         iniciarListenersFirestore();
       } else {
         authContainer.classList.remove("hidden");
+        if (timeoutPausarListeners) { clearTimeout(timeoutPausarListeners); timeoutPausarListeners = null; }
+        listenersPausadosPorInactividad = false;
         unsubscribes.forEach(unsub => unsub && unsub());
         unsubscribes = [];
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
       }
     });
 
@@ -1480,32 +1504,14 @@
       }, (err) => console.error("Error en tableros snapshot:", err));
       unsubscribes.push(unsubTab);
 
-      // 5. MATERIAL TERMINADO (stockterminado)
-      const unsubTerminado = onSnapshot(collection(db, COL_STOCKTERMINADO), (snapshot) => {
-        stockTerminadoList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        renderStockTerminado();
-      }, (err) => console.error("Error en stockterminado snapshot:", err));
-      unsubscribes.push(unsubTerminado);
+      // (Nota: Material Terminado, Histórico, Usuarios y Configuración ahora se cargan bajo demanda al entrar en sus pestañas, desconectando listeners al salir para optimizar drásticamente las lecturas de Firebase)
+    }
 
-      // 6. HISTORICO
-      const qHist = query(collection(db, COL_HISTORICO), orderBy("fecha", "desc"));
-      const unsubHist = onSnapshot(qHist, (snapshot) => {
-        historicoList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        renderHistorico();
-      }, (err) => {
-        // Si no hay índice para orderBy todavía, fallback simple
-        console.warn("Consulta histórico ordenada falló, reintentando sin ordenar...", err);
-        const unsubHistFallback = onSnapshot(collection(db, COL_HISTORICO), (snap2) => {
-          historicoList = snap2.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          renderHistorico();
-        });
-        unsubscribes.push(unsubHistFallback);
-      });
-      unsubscribes.push(unsubHist);
-
-      // 7. USUARIOS (solo si admin)
-      if (esAdmin()) {
-        const unsubUsuarios = onSnapshot(collection(db, COL_USUARIOS), (snapshot) => {
+    // ==================== GESTIÓN BAJO DEMANDA: USUARIOS Y CONFIGURACIÓN ====================
+    window.iniciarListenerGestion = function() {
+      // 1. USUARIOS (solo si admin)
+      if (esAdmin() && !unsubUsuarios) {
+        unsubUsuarios = onSnapshot(collection(db, COL_USUARIOS), (snapshot) => {
           usuariosList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
           // Asegurar que el usuario activo siempre aparezca en usuariosList
@@ -1542,24 +1548,97 @@
 
           if (window.renderUsuarios) window.renderUsuarios();
         }, (err) => console.error("Error en usuarios snapshot:", err));
-        unsubscribes.push(unsubUsuarios);
       }
 
-      // 8. CONFIGURACIÓN (Mails alerta de stock)
-      const unsubConfig = onSnapshot(collection(db, COL_CONFIGURACION), (snapshot) => {
-        if (!snapshot.empty) {
-          const foundDoc = snapshot.docs.find(d => d.data().mailsalertastock !== undefined) || snapshot.docs.find(d => d.id === "alertas") || snapshot.docs[0];
-          window.docConfigAlertasId = foundDoc.id;
-          const data = foundDoc.data();
-          mailsAlertaStockList = Array.isArray(data.mailsalertastock) ? data.mailsalertastock : [];
-        } else {
-          window.docConfigAlertasId = "alertas";
-          mailsAlertaStockList = [];
-        }
-        if (window.renderMailsAlertaStock) window.renderMailsAlertaStock();
-      }, (err) => console.error("Error en configuracion snapshot:", err));
-      unsubscribes.push(unsubConfig);
+      // 2. CONFIGURACIÓN (Mails alerta de stock)
+      if (!unsubConfig) {
+        unsubConfig = onSnapshot(collection(db, COL_CONFIGURACION), (snapshot) => {
+          if (!snapshot.empty) {
+            const foundDoc = snapshot.docs.find(d => d.data().mailsalertastock !== undefined) || snapshot.docs.find(d => d.id === "alertas") || snapshot.docs[0];
+            window.docConfigAlertasId = foundDoc.id;
+            const data = foundDoc.data();
+            mailsAlertaStockList = Array.isArray(data.mailsalertastock) ? data.mailsalertastock : [];
+          } else {
+            window.docConfigAlertasId = "alertas";
+            mailsAlertaStockList = [];
+          }
+          if (window.renderMailsAlertaStock) window.renderMailsAlertaStock();
+        }, (err) => console.error("Error en configuracion snapshot:", err));
+      }
+    };
+
+    window.detenerListenerGestion = function() {
+      if (unsubUsuarios) {
+        unsubUsuarios();
+        unsubUsuarios = null;
+      }
+      if (unsubConfig) {
+        unsubConfig();
+        unsubConfig = null;
+      }
+    };
+
+    window.iniciarListenersFirestore = iniciarListenersFirestore;
+
+    // ==================== PAUSA AUTOMÁTICA POR INACTIVIDAD / SEGUNDO PLANO ====================
+    const TIEMPO_ESPERA_SEGUNDO_PLANO = 3 * 60 * 1000; // 3 minutos en segundo plano antes de pausar
+
+    function pausarListenersPorInactividad() {
+      if (listenersPausadosPorInactividad) return;
+      if (!auth.currentUser) return;
+
+      listenersPausadosPorInactividad = true;
+      console.log("GarvaStock en segundo plano: pausando listeners de Firestore para ahorrar lecturas...");
+
+      // Desconectar listeners principales de stock e inventario
+      unsubscribes.forEach(unsub => unsub && unsub());
+      unsubscribes = [];
+
+      // Desconectar listeners bajo demanda activos
+      if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+      if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+      if (window.detenerListenerGestion) window.detenerListenerGestion();
     }
+    window.pausarListenersPorInactividad = pausarListenersPorInactividad;
+
+    function reanudarListenersTrasInactividad() {
+      if (timeoutPausarListeners) {
+        clearTimeout(timeoutPausarListeners);
+        timeoutPausarListeners = null;
+      }
+
+      if (!listenersPausadosPorInactividad) return;
+      if (!auth.currentUser) return;
+
+      listenersPausadosPorInactividad = false;
+      console.log("GarvaStock en primer plano: reanudando listeners de Firestore...");
+
+      // Reanudar listeners principales
+      iniciarListenersFirestore();
+
+      // Reanudar listener de la pestaña activa en pantalla
+      const tab = window.pestañaActiva || 'dashboard';
+      if (tab === 'terminado' && window.iniciarListenerStockTerminado) {
+        window.iniciarListenerStockTerminado();
+      } else if (tab === 'historico' && window.iniciarListenerHistorico) {
+        window.iniciarListenerHistorico();
+      } else if (tab === 'gestion' && window.iniciarListenerGestion) {
+        window.iniciarListenerGestion();
+      }
+
+      // Actualizar vista
+      if (window.actualizarKPIsYAlertas) window.actualizarKPIsYAlertas();
+    }
+    window.reanudarListenersTrasInactividad = reanudarListenersTrasInactividad;
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        if (timeoutPausarListeners) clearTimeout(timeoutPausarListeners);
+        timeoutPausarListeners = setTimeout(pausarListenersPorInactividad, TIEMPO_ESPERA_SEGUNDO_PLANO);
+      } else if (document.visibilityState === "visible") {
+        reanudarListenersTrasInactividad();
+      }
+    });
 
     // Función para poblar selects de Color / Tipo basados en los configurados en Inventario para cada Artículo
     function cargarTiposEnSelect(articulo, selectId, valorSeleccionado = "") {
@@ -2694,6 +2773,22 @@
       lucide.createIcons();
     };
 
+    // GESTIÓN BAJO DEMANDA: MATERIAL TERMINADO
+    window.iniciarListenerStockTerminado = function() {
+      if (unsubTerminado) return;
+      unsubTerminado = onSnapshot(collection(db, COL_STOCKTERMINADO), (snapshot) => {
+        stockTerminadoList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderStockTerminado();
+      }, (err) => console.error("Error en stockterminado snapshot:", err));
+    };
+
+    window.detenerListenerStockTerminado = function() {
+      if (unsubTerminado) {
+        unsubTerminado();
+        unsubTerminado = null;
+      }
+    };
+
     // RENDER: MATERIAL TERMINADO
     window.renderStockTerminado = function() {
       const tbody = document.getElementById("tabla-terminado-body");
@@ -2767,21 +2862,114 @@
       lucide.createIcons();
     };
 
+    // ==================== GESTIÓN BAJO DEMANDA Y PAGINACIÓN OPTIMIZADA: HISTÓRICO (LIMIT 20) ====================
     let paginaHistoricoActual = 1;
-    const REGISTROS_POR_PAGINA_HISTORICO = 100;
+    const REGISTROS_POR_PAGINA_HISTORICO = 20;
+    let hayMasHistorico = false;
+
+    window.iniciarListenerHistorico = function() {
+      // Cargar la página actual bajo demanda con limit(20)
+      cargarPaginaHistorico(paginaHistoricoActual);
+    };
+
+    window.detenerListenerHistorico = function() {
+      if (unsubHistorico) {
+        unsubHistorico();
+        unsubHistorico = null;
+      }
+    };
+
+    async function cargarPaginaHistorico(numPagina) {
+      if (cargandoHistorico) return;
+      cargandoHistorico = true;
+
+      const tbody = document.getElementById("tabla-historico-body");
+      if (tbody && historicoList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">Cargando histórico...</td></tr>`;
+      }
+
+      if (unsubHistorico) {
+        unsubHistorico();
+        unsubHistorico = null;
+      }
+
+      try {
+        let q;
+        const cursorDoc = historicoPageCursors[numPagina - 1] || null;
+
+        if (numPagina > 1 && cursorDoc) {
+          q = query(
+            collection(db, COL_HISTORICO),
+            orderBy("fecha", "desc"),
+            startAfter(cursorDoc),
+            limit(REGISTROS_POR_PAGINA_HISTORICO + 1)
+          );
+        } else {
+          q = query(
+            collection(db, COL_HISTORICO),
+            orderBy("fecha", "desc"),
+            limit(REGISTROS_POR_PAGINA_HISTORICO + 1)
+          );
+        }
+
+        unsubHistorico = onSnapshot(q, (snapshot) => {
+          cargandoHistorico = false;
+          const docs = snapshot.docs;
+          if (docs.length > REGISTROS_POR_PAGINA_HISTORICO) {
+            hayMasHistorico = true;
+            historicoDocsSnapshot = docs.slice(0, REGISTROS_POR_PAGINA_HISTORICO);
+            // Guardar el último documento de esta página como cursor para la siguiente
+            historicoPageCursors[numPagina] = historicoDocsSnapshot[historicoDocsSnapshot.length - 1];
+          } else {
+            hayMasHistorico = false;
+            historicoDocsSnapshot = docs;
+            if (docs.length > 0) {
+              historicoPageCursors[numPagina] = docs[docs.length - 1];
+            }
+          }
+
+          historicoList = historicoDocsSnapshot.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+          paginaHistoricoActual = numPagina;
+          renderHistorico();
+        }, (err) => {
+          cargandoHistorico = false;
+          console.warn("Consulta histórico ordenada falló (posible falta de índice), reintentando fallback...", err);
+          const qFallback = query(collection(db, COL_HISTORICO), limit(REGISTROS_POR_PAGINA_HISTORICO));
+          unsubHistorico = onSnapshot(qFallback, (snapFallback) => {
+            historicoList = snapFallback.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            hayMasHistorico = snapFallback.docs.length >= REGISTROS_POR_PAGINA_HISTORICO;
+            paginaHistoricoActual = 1;
+            renderHistorico();
+          });
+        });
+      } catch (err) {
+        cargandoHistorico = false;
+        console.error("Error al cargar página de histórico:", err);
+      }
+    }
 
     window.cambiarPaginaHistorico = function(delta) {
-      paginaHistoricoActual += delta;
-      renderHistorico();
+      if (cargandoHistorico) return;
+      const nuevaPag = paginaHistoricoActual + delta;
+      if (nuevaPag < 1) return;
+      if (delta > 0 && !hayMasHistorico) return;
+
+      cargarPaginaHistorico(nuevaPag);
     };
 
     window.resetearPaginaHistorico = function() {
       paginaHistoricoActual = 1;
+      historicoPageCursors = [null];
+      if (window.currentUserData && !['historico'].includes(document.querySelector('.tab-content:not(.hidden)')?.id?.replace('tab-', ''))) {
+        return;
+      }
+      cargarPaginaHistorico(1);
     };
 
     // RENDER: HISTÓRICO
     window.renderHistorico = function() {
       const tbody = document.getElementById("tabla-historico-body");
+      if (!tbody) return;
       const filtro = (document.getElementById("filtro-historico")?.value || "").toLowerCase();
 
       const items = historicoList.filter(item => 
@@ -2793,15 +2981,6 @@
         (item.descripcion || "").toLowerCase().includes(filtro)
       );
 
-      const totalRegistros = items.length;
-      const totalPaginas = Math.ceil(totalRegistros / REGISTROS_POR_PAGINA_HISTORICO) || 1;
-      if (paginaHistoricoActual > totalPaginas) paginaHistoricoActual = totalPaginas;
-      if (paginaHistoricoActual < 1) paginaHistoricoActual = 1;
-
-      const indiceInicio = (paginaHistoricoActual - 1) * REGISTROS_POR_PAGINA_HISTORICO;
-      const indiceFin = Math.min(indiceInicio + REGISTROS_POR_PAGINA_HISTORICO, totalRegistros);
-      const itemsPagina = items.slice(indiceInicio, indiceFin);
-
       // Actualizar contador y controles de paginación
       const contadorEl = document.getElementById("contador-historico");
       const infoPaginaEl = document.getElementById("info-pagina-historico");
@@ -2809,33 +2988,22 @@
       const btnNext = document.getElementById("btn-hist-next");
 
       if (contadorEl) {
-        if (totalRegistros === 0) {
-          contadorEl.textContent = historicoList.length > 0 
-            ? `0 registros (filtrados de ${historicoList.length} en total)` 
-            : "0 registros";
-        } else if (totalRegistros <= REGISTROS_POR_PAGINA_HISTORICO) {
-          if (totalRegistros === historicoList.length) {
-            contadorEl.textContent = `Mostrando ${totalRegistros} registro${totalRegistros === 1 ? '' : 's'}`;
-          } else {
-            contadorEl.textContent = `Mostrando ${totalRegistros} de ${historicoList.length} registros`;
-          }
+        const offset = (paginaHistoricoActual - 1) * REGISTROS_POR_PAGINA_HISTORICO;
+        if (items.length === 0) {
+          contadorEl.textContent = "0 registros en esta página";
         } else {
-          if (totalRegistros === historicoList.length) {
-            contadorEl.textContent = `Mostrando ${indiceInicio + 1}-${indiceFin} de ${totalRegistros} registros`;
-          } else {
-            contadorEl.textContent = `Mostrando ${indiceInicio + 1}-${indiceFin} de ${totalRegistros} registros (de ${historicoList.length} en total)`;
-          }
+          contadorEl.textContent = `Mostrando ${offset + 1}-${offset + items.length} registros (20 por página)`;
         }
       }
 
       if (infoPaginaEl) {
-        infoPaginaEl.textContent = `Página ${paginaHistoricoActual} de ${totalPaginas}`;
+        infoPaginaEl.textContent = `Página ${paginaHistoricoActual}`;
       }
       if (btnPrev) {
-        btnPrev.disabled = (paginaHistoricoActual <= 1);
+        btnPrev.disabled = (paginaHistoricoActual <= 1 || cargandoHistorico);
       }
       if (btnNext) {
-        btnNext.disabled = (paginaHistoricoActual >= totalPaginas);
+        btnNext.disabled = (!hayMasHistorico || cargandoHistorico);
       }
 
       if (items.length === 0) {
@@ -2844,7 +3012,7 @@
       }
 
       let html = "";
-      itemsPagina.forEach(item => {
+      items.forEach(item => {
         let fechaStr = "Reciente";
         if (item.fecha && item.fecha.toDate) {
           const d = item.fecha.toDate();
@@ -4286,6 +4454,7 @@
     });
 
     // Gestión de Pestañas
+    window.pestañaActiva = 'dashboard';
     function switchTab(tabName) {
       // Alias: si se invoca 'usuarios', redirigir a la pestaña unificada de 'gestion'
       if (tabName === 'usuarios') tabName = 'gestion';
@@ -4296,6 +4465,8 @@
           tabName = 'dashboard';
         }
       }
+
+      window.pestañaActiva = tabName;
 
       // Ocultar todos los contenidos
       document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -4346,6 +4517,25 @@
 
       // Ocultar menú móvil si estaba abierto
       document.getElementById('mobile-menu').classList.add('hidden');
+
+      // Desconectar o conectar listeners en tiempo real según la pestaña activa para optimizar lecturas
+      if (tabName === 'terminado') {
+        if (window.iniciarListenerStockTerminado) window.iniciarListenerStockTerminado();
+      } else {
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+      }
+
+      if (tabName === 'historico') {
+        if (window.iniciarListenerHistorico) window.iniciarListenerHistorico();
+      } else {
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+      }
+
+      if (tabName === 'gestion' || tabName === 'usuarios') {
+        if (window.iniciarListenerGestion) window.iniciarListenerGestion();
+      } else {
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      }
 
       // Re-renderizar datos de la pestaña activa con los datos más recientes
       if ((tabName === 'dashboard' || tabName === 'panel') && window.actualizarKPIsYAlertas) window.actualizarKPIsYAlertas();
