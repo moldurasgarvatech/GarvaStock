@@ -1571,7 +1571,8 @@
 
     // Helpers para asegurar datos de inventario en modales sin sobrecostes
     async function asegurarInventarioCargado() {
-      if (inventarioList && inventarioList.length > 0) return inventarioList;
+      const inventarioAlDia = inventarioList && inventarioList.length > 0 && (versionInventarioCargada === versionInventarioServidor);
+      if (inventarioAlDia) return inventarioList;
       try {
         const snap = await getDocs(collection(db, COL_INVENTARIO));
         inventarioList = snap.docs.map(doc => {
@@ -2561,7 +2562,7 @@
           const esBobina = (item.articulo || '').trim().toLowerCase() === 'bobina';
           const puedeEditar = puedeEditarColeccionArticulo(item.articulo);
           const artAttr = escapeQuotes(item.articulo || '');
-          const colorAttr = escapeQuotes(item.color || '');
+          const colorAttr = escapeQuotes(item.color || item.tipo || '');
           const anchoAttr = (item.ancho !== undefined && item.ancho !== null) ? item.ancho : '';
           const largoAttr = (item.largo !== undefined && item.largo !== null) ? item.largo : '';
           const grosorAttr = (item.grosor !== undefined && item.grosor !== null) ? item.grosor : '';
@@ -2626,6 +2627,7 @@
 
     async function comprobarYEnviarAlertaWebhook(articulo, color, largo, ancho, grosor) {
       try {
+        await asegurarInventarioCargado();
         const artNorm = (articulo || '').trim().toLowerCase();
         const colorNorm = (color || '').trim().toLowerCase();
         const targetAncho = (ancho !== undefined && ancho !== null && ancho !== '') ? Number(ancho) : null;
@@ -2657,6 +2659,20 @@
         const reposicion = Number(invItem.stockreposicion || 0);
 
         // 2. Calcular stock actual
+        if (artNorm === 'bobina') {
+          try {
+            let snapB = await getDocs(query(collection(db, COL_BOBINAS), where("color", "==", color)));
+            if (snapB.empty) {
+              const snapLegacy = await getDocs(query(collection(db, COL_BOBINAS), where("tipo", "==", color)));
+              if (!snapLegacy.empty) snapB = snapLegacy;
+            }
+            const realBobinas = snapB.docs.map(d => ({ id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' }));
+            bobinasList = bobinasList.filter(b => (b.color || b.tipo || '').trim().toLowerCase() !== colorNorm).concat(realBobinas);
+          } catch (e) {
+            console.warn("Aviso obteniendo bobinas de este color en Firestore:", e);
+          }
+        }
+
         const desglose = calcularStockTotalArticulo(articulo, color, largo, ancho, grosor);
         const cantidadActual = desglose.total;
 
@@ -3598,8 +3614,21 @@
             }
           }
 
-          // Sincronizar inmediatamente la alerta en alertasActivasList y en Firestore (0 lecturas)
+          // Sincronizar inmediatamente la alerta en alertasActivasList y en Firestore
           const colorFinal = colorNuev || color;
+          if (articulo.toLowerCase() === 'bobina') {
+            try {
+              let snapB = await getDocs(query(collection(db, COL_BOBINAS), where("color", "==", colorFinal)));
+              if (snapB.empty) {
+                const snapLegacy = await getDocs(query(collection(db, COL_BOBINAS), where("tipo", "==", colorFinal)));
+                if (!snapLegacy.empty) snapB = snapLegacy;
+              }
+              const realBobinas = snapB.docs.map(d => ({ id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' }));
+              bobinasList = bobinasList.filter(b => (b.color || b.tipo || '').trim().toLowerCase() !== (colorFinal || '').trim().toLowerCase()).concat(realBobinas);
+            } catch (e) {
+              console.warn("Aviso consultando bobinas en inventario:", e);
+            }
+          }
           const desglose = calcularStockTotalArticulo(articulo, colorFinal, largo, ancho, grosor);
           const stockActual = desglose.total;
           const reposicionNum = Number(stockreposicion || 0);
@@ -3662,6 +3691,19 @@
           }
 
           const colorFinal = color || tipo;
+          if (articulo.toLowerCase() === 'bobina') {
+            try {
+              let snapB = await getDocs(query(collection(db, COL_BOBINAS), where("color", "==", colorFinal)));
+              if (snapB.empty) {
+                const snapLegacy = await getDocs(query(collection(db, COL_BOBINAS), where("tipo", "==", colorFinal)));
+                if (!snapLegacy.empty) snapB = snapLegacy;
+              }
+              const realBobinas = snapB.docs.map(d => ({ id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' }));
+              bobinasList = bobinasList.filter(b => (b.color || b.tipo || '').trim().toLowerCase() !== (colorFinal || '').trim().toLowerCase()).concat(realBobinas);
+            } catch (e) {
+              console.warn("Aviso consultando bobinas en nuevo inventario:", e);
+            }
+          }
           const desglose = calcularStockTotalArticulo(articulo, colorFinal, largo, ancho, grosor);
           const stockActual = desglose.total;
           const reposicionNum = Number(stockreposicion || 0);
@@ -3764,7 +3806,10 @@
       cargarTiposEnSelect("Bobina", "bobina-color", colorPreseleccionado);
       if (colorPreseleccionado) {
         const sel = document.getElementById("bobina-color");
-        if (sel) sel.value = colorPreseleccionado;
+        if (sel) {
+          const optMatch = Array.from(sel.options).find(o => o.value.trim().toLowerCase() === colorPreseleccionado.trim().toLowerCase());
+          if (optMatch) sel.value = optMatch.value;
+        }
       }
       document.getElementById("modal-bobina-title").textContent = colorPreseleccionado 
         ? `Añadir Bobina (${colorPreseleccionado}) a Stock` 
