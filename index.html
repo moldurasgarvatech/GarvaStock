@@ -1115,14 +1115,24 @@
     const COL_HISTORICO = "historico";
     const COL_CONFIGURACION = "configuracion";
 
-    // Subscripciones activas para tiempo real
+    // Subscripciones activas para tiempo real bajo demanda
     let unsubscribes = [];
+    let unsubAlertas = null;
+    let unsubBobinas = null;
+    let unsubRollos = null;
+    let unsubTableros = null;
+    let unsubInventario = null;
     let unsubTerminado = null;
     let unsubHistorico = null;
     let unsubUsuarios = null;
     let unsubConfig = null;
+    let alertasActivasList = [];
     let listenersPausadosPorInactividad = false;
     let timeoutPausarListeners = null;
+
+    // Semáforo de versión para inventario (evita recargas innecesarias entre pestañas)
+    let versionInventarioServidor = 0;
+    let versionInventarioCargada = -1;
 
     // Estado para paginación eficiente de Histórico bajo demanda (limit 20)
     let historicoDocsSnapshot = []; // Guarda los DocumentSnapshots de la página actual
@@ -1240,11 +1250,7 @@
       if (res.isConfirmed) {
         if (timeoutPausarListeners) { clearTimeout(timeoutPausarListeners); timeoutPausarListeners = null; }
         listenersPausadosPorInactividad = false;
-        unsubscribes.forEach(unsub => unsub && unsub());
-        unsubscribes = [];
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
+        if (window.detenerTodosLosListeners) window.detenerTodosLosListeners();
         await signOut(auth);
       }
     });
@@ -1261,11 +1267,7 @@
         authContainer.classList.remove("hidden");
         if (timeoutPausarListeners) { clearTimeout(timeoutPausarListeners); timeoutPausarListeners = null; }
         listenersPausadosPorInactividad = false;
-        unsubscribes.forEach(unsub => unsub && unsub());
-        unsubscribes = [];
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
+        if (window.detenerTodosLosListeners) window.detenerTodosLosListeners();
       }
     });
 
@@ -1455,56 +1457,311 @@
       }
     }
 
-    // ==================== LISTENERS FIRESTORE (TIEMPO REAL) ====================
-    function iniciarListenersFirestore() {
-      unsubscribes.forEach(u => u && u());
-      unsubscribes = [];
-
-      // 1. INVENTARIO
-      const unsubInv = onSnapshot(collection(db, COL_INVENTARIO), (snapshot) => {
-        inventarioList = snapshot.docs.map(doc => {
-          const d = doc.data();
-          return { id: doc.id, ...d, color: d.color || d.tipo || '' };
-        });
-        renderInventario();
+    // ==================== LISTENERS FIRESTORE (BAJO DEMANDA Y ALERTA CENTRAL) ====================
+    // 0. ALERTAS ACTIVAS (DOCUMENTO ÚNICO CENTRAL: ¡1 sola lectura al iniciar la aplicación!)
+    function iniciarListenerAlertasDashboard() {
+      if (unsubAlertas) return;
+      unsubAlertas = onSnapshot(doc(db, COL_CONFIGURACION, "alertas_activas"), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          alertasActivasList = Array.isArray(data.items) ? data.items : [];
+          if (data.version_inventario !== undefined) {
+            versionInventarioServidor = Number(data.version_inventario || 0);
+          }
+        } else {
+          alertasActivasList = [];
+        }
         actualizarKPIsYAlertas();
-      }, (err) => console.error("Error en inventario snapshot:", err));
-      unsubscribes.push(unsubInv);
+      }, (err) => console.error("Error en listener alertas_activas:", err));
+    }
+    window.iniciarListenerAlertasDashboard = iniciarListenerAlertasDashboard;
 
-      // 2. BOBINAS
-      const unsubBob = onSnapshot(collection(db, COL_BOBINAS), (snapshot) => {
+    function detenerListenerAlertasDashboard() {
+      if (unsubAlertas) {
+        unsubAlertas();
+        unsubAlertas = null;
+      }
+    }
+    window.detenerListenerAlertasDashboard = detenerListenerAlertasDashboard;
+
+    // 1. BOBINAS BAJO DEMANDA
+    function iniciarListenerBobinas() {
+      if (unsubBobinas) return;
+      unsubBobinas = onSnapshot(collection(db, COL_BOBINAS), (snapshot) => {
         bobinasList = snapshot.docs.map(doc => {
           const d = doc.data();
           return { id: doc.id, ...d, color: d.color || d.tipo || '' };
         });
-        renderBobinas();
-        renderInventario();
-        actualizarKPIsYAlertas();
+        if (window.renderBobinas) renderBobinas();
+        if (window.pestañaActiva === 'inventario' && window.renderInventario) renderInventario();
       }, (err) => console.error("Error en bobinas snapshot:", err));
-      unsubscribes.push(unsubBob);
+    }
+    window.iniciarListenerBobinas = iniciarListenerBobinas;
 
-      // 3. ROLLOS
-      const unsubRol = onSnapshot(collection(db, COL_ROLLOS), (snapshot) => {
+    function detenerListenerBobinas() {
+      if (unsubBobinas) {
+        unsubBobinas();
+        unsubBobinas = null;
+      }
+    }
+    window.detenerListenerBobinas = detenerListenerBobinas;
+
+    // 2. ROLLOS BAJO DEMANDA
+    function iniciarListenerRollos() {
+      if (unsubRollos) return;
+      unsubRollos = onSnapshot(collection(db, COL_ROLLOS), (snapshot) => {
         rollosList = snapshot.docs.map(doc => {
           const d = doc.data();
           return { id: doc.id, ...d, color: d.color || d.tipo || '' };
         });
-        renderRollos();
-        renderInventario();
-        actualizarKPIsYAlertas();
+        if (window.renderRollos) renderRollos();
+        if (window.pestañaActiva === 'inventario' && window.renderInventario) renderInventario();
       }, (err) => console.error("Error en rollos snapshot:", err));
-      unsubscribes.push(unsubRol);
+    }
+    window.iniciarListenerRollos = iniciarListenerRollos;
 
-      // 4. TABLEROS
-      const unsubTab = onSnapshot(collection(db, COL_TABLEROS), (snapshot) => {
+    function detenerListenerRollos() {
+      if (unsubRollos) {
+        unsubRollos();
+        unsubRollos = null;
+      }
+    }
+    window.detenerListenerRollos = detenerListenerRollos;
+
+    // 3. TABLEROS BAJO DEMANDA
+    function iniciarListenerTableros() {
+      if (unsubTableros) return;
+      unsubTableros = onSnapshot(collection(db, COL_TABLEROS), (snapshot) => {
         tablerosList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        renderTableros();
-        renderInventario();
-        actualizarKPIsYAlertas();
+        if (window.renderTableros) renderTableros();
+        if (window.pestañaActiva === 'inventario' && window.renderInventario) renderInventario();
       }, (err) => console.error("Error en tableros snapshot:", err));
-      unsubscribes.push(unsubTab);
+    }
+    window.iniciarListenerTableros = iniciarListenerTableros;
 
-      // (Nota: Material Terminado, Histórico, Usuarios y Configuración ahora se cargan bajo demanda al entrar en sus pestañas, desconectando listeners al salir para optimizar drásticamente las lecturas de Firebase)
+    function detenerListenerTableros() {
+      if (unsubTableros) {
+        unsubTableros();
+        unsubTableros = null;
+      }
+    }
+    window.detenerListenerTableros = detenerListenerTableros;
+
+    // 4. INVENTARIO BAJO DEMANDA (CON SEMÁFORO DE VERSIÓN)
+    function iniciarListenerInventario() {
+      if (unsubInventario) return;
+      unsubInventario = onSnapshot(collection(db, COL_INVENTARIO), (snapshot) => {
+        inventarioList = snapshot.docs.map(doc => {
+          const d = doc.data();
+          return { id: doc.id, ...d, color: d.color || d.tipo || '' };
+        });
+        versionInventarioCargada = versionInventarioServidor;
+        if (window.renderInventario) renderInventario();
+      }, (err) => console.error("Error en inventario snapshot:", err));
+    }
+    window.iniciarListenerInventario = iniciarListenerInventario;
+
+    function detenerListenerInventario() {
+      if (unsubInventario) {
+        unsubInventario();
+        unsubInventario = null;
+      }
+    }
+    window.detenerListenerInventario = detenerListenerInventario;
+
+    // Helpers para asegurar datos de inventario en modales sin sobrecostes
+    async function asegurarInventarioCargado() {
+      if (inventarioList && inventarioList.length > 0) return inventarioList;
+      try {
+        const snap = await getDocs(collection(db, COL_INVENTARIO));
+        inventarioList = snap.docs.map(doc => {
+          const d = doc.data();
+          return { id: doc.id, ...d, color: d.color || d.tipo || '' };
+        });
+        versionInventarioCargada = versionInventarioServidor;
+        return inventarioList;
+      } catch (err) {
+        console.error("Error asegurando inventario cargado:", err);
+        return [];
+      }
+    }
+    window.asegurarInventarioCargado = asegurarInventarioCargado;
+
+    // Sincronizar un único artículo en alertas_activas (¡0 lecturas de stock!)
+    async function sincronizarAlertaArticulo(articulo, color, largo, ancho, grosor, cantidadActual, reposicion, invId) {
+      const artNorm = (articulo || '').trim().toLowerCase();
+      const colNorm = (color || '').trim().toLowerCase();
+      const tLargo = (largo !== undefined && largo !== null && largo !== '') ? Number(largo) : null;
+      const tAncho = (ancho !== undefined && ancho !== null && ancho !== '') ? Number(ancho) : null;
+      const tGrosor = (grosor !== undefined && grosor !== null && grosor !== '') ? Number(grosor) : null;
+
+      let idx = alertasActivasList.findIndex(a => {
+        if (invId && a.id === invId) return true;
+        if ((a.articulo || '').trim().toLowerCase() !== artNorm) return false;
+        if (artNorm === 'bobina') {
+          return (a.color || a.tipo || '').trim().toLowerCase() === colNorm;
+        } else if (artNorm === 'rollo') {
+          const aAncho = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
+          return (a.color || a.tipo || '').trim().toLowerCase() === colNorm && (tAncho === null || aAncho === tAncho);
+        } else if (artNorm === 'tablero') {
+          const aL = Number(a.largo);
+          const aG = Number(a.grosor);
+          const aA = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
+          return aL === tLargo && aG === tGrosor && (tAncho === null || aA === tAncho);
+        }
+        return false;
+      });
+
+      const bajoMinimo = cantidadActual < reposicion && reposicion > 0;
+
+      if (bajoMinimo) {
+        const tipoLabel = artNorm === 'tablero'
+          ? (tAncho ? `${tLargo} x ${tAncho} x ${tGrosor} mm` : `${tLargo} x ${tGrosor} mm`)
+          : (artNorm === 'rollo' && tAncho ? `${color} - ${tAncho} cm` : color);
+
+        const alertData = {
+          id: invId || (idx >= 0 ? alertasActivasList[idx].id : Date.now().toString()),
+          articulo: articulo,
+          tipo: tipoLabel,
+          color: color || '',
+          ancho: tAncho,
+          largo: tLargo,
+          grosor: tGrosor,
+          stockActual: cantidadActual,
+          stockReposicion: reposicion,
+          faltante: reposicion - cantidadActual
+        };
+
+        if (idx >= 0) {
+          alertasActivasList[idx] = { ...alertasActivasList[idx], ...alertData };
+        } else {
+          alertasActivasList.push(alertData);
+        }
+      } else {
+        // Si ya no está bajo mínimo, eliminarlo de la lista de alertas
+        if (idx >= 0) {
+          alertasActivasList.splice(idx, 1);
+        }
+      }
+
+      // Actualizar UI local inmediatamente
+      actualizarKPIsYAlertas();
+
+      // Persistir en Firestore en alertas_activas (1 sola escritura, 0 lecturas)
+      try {
+        await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
+          items: alertasActivasList,
+          total: alertasActivasList.length,
+          actualizado: serverTimestamp(),
+          actualizadoPor: currentUserData.nombre || "Usuario"
+        }, { merge: true });
+      } catch (e) {
+        console.warn("Aviso guardando alertas_activas:", e);
+      }
+    }
+    window.sincronizarAlertaArticulo = sincronizarAlertaArticulo;
+
+    // Desconectar absolutamente todos los listeners activos
+    function detenerTodosLosListeners() {
+      detenerListenerAlertasDashboard();
+      detenerListenerBobinas();
+      detenerListenerRollos();
+      detenerListenerTableros();
+      detenerListenerInventario();
+      if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+      if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+      if (window.detenerListenerGestion) window.detenerListenerGestion();
+      unsubscribes.forEach(u => u && u());
+      unsubscribes = [];
+    }
+    window.detenerTodosLosListeners = detenerTodosLosListeners;
+
+    // Gestión bajo demanda de listeners según la pestaña activa
+    window.conectarListenersSegunPestaña = function(tabName) {
+      // El listener de alertas permanece siempre conectado para el badge y avisos globales (coste: 1 única lectura de doc)
+      iniciarListenerAlertasDashboard();
+
+      if (tabName === 'dashboard' || tabName === 'panel') {
+        detenerListenerBobinas();
+        detenerListenerRollos();
+        detenerListenerTableros();
+        detenerListenerInventario();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'bobinas') {
+        iniciarListenerBobinas();
+        detenerListenerRollos();
+        detenerListenerTableros();
+        detenerListenerInventario();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'rollos') {
+        iniciarListenerRollos();
+        detenerListenerBobinas();
+        detenerListenerTableros();
+        detenerListenerInventario();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'tableros') {
+        iniciarListenerTableros();
+        detenerListenerBobinas();
+        detenerListenerRollos();
+        detenerListenerInventario();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'inventario') {
+        // Semáforo de inventario: si ya tenemos datos y la versión no ha cambiado, no descargamos de nuevo
+        const inventarioAlDia = inventarioList.length > 0 && (versionInventarioCargada === versionInventarioServidor);
+        if (inventarioAlDia) {
+          if (window.renderInventario) renderInventario();
+        } else {
+          iniciarListenerInventario();
+        }
+        iniciarListenerBobinas();
+        iniciarListenerRollos();
+        iniciarListenerTableros();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'terminado') {
+        detenerListenerBobinas();
+        detenerListenerRollos();
+        detenerListenerTableros();
+        detenerListenerInventario();
+        if (window.iniciarListenerStockTerminado) window.iniciarListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'historico') {
+        detenerListenerBobinas();
+        detenerListenerRollos();
+        detenerListenerTableros();
+        detenerListenerInventario();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.iniciarListenerHistorico) window.iniciarListenerHistorico();
+        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      } else if (tabName === 'gestion' || tabName === 'usuarios') {
+        detenerListenerBobinas();
+        detenerListenerRollos();
+        detenerListenerTableros();
+        detenerListenerInventario();
+        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
+        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
+        if (window.iniciarListenerGestion) window.iniciarListenerGestion();
+      }
+    };
+
+    // Al iniciar sesión o arrancar, solo iniciamos el listener de alertas (¡1 sola lectura!) y la pestaña actual si no es dashboard
+    function iniciarListenersFirestore() {
+      detenerTodosLosListeners();
+      iniciarListenerAlertasDashboard();
+      const tab = window.pestañaActiva || 'dashboard';
+      if (tab !== 'dashboard' && window.conectarListenersSegunPestaña) {
+        window.conectarListenersSegunPestaña(tab);
+      }
     }
 
     // ==================== GESTIÓN BAJO DEMANDA: USUARIOS Y CONFIGURACIÓN ====================
@@ -1590,14 +1847,8 @@
       listenersPausadosPorInactividad = true;
       console.log("GarvaStock en segundo plano: pausando listeners de Firestore para ahorrar lecturas...");
 
-      // Desconectar listeners principales de stock e inventario
-      unsubscribes.forEach(unsub => unsub && unsub());
-      unsubscribes = [];
-
-      // Desconectar listeners bajo demanda activos
-      if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-      if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-      if (window.detenerListenerGestion) window.detenerListenerGestion();
+      // Desconectar todos los listeners activos
+      detenerTodosLosListeners();
     }
     window.pausarListenersPorInactividad = pausarListenersPorInactividad;
 
@@ -1613,18 +1864,8 @@
       listenersPausadosPorInactividad = false;
       console.log("GarvaStock en primer plano: reanudando listeners de Firestore...");
 
-      // Reanudar listeners principales
+      // Reanudar listeners principales y de la pestaña activa
       iniciarListenersFirestore();
-
-      // Reanudar listener de la pestaña activa en pantalla
-      const tab = window.pestañaActiva || 'dashboard';
-      if (tab === 'terminado' && window.iniciarListenerStockTerminado) {
-        window.iniciarListenerStockTerminado();
-      } else if (tab === 'historico' && window.iniciarListenerHistorico) {
-        window.iniciarListenerHistorico();
-      } else if (tab === 'gestion' && window.iniciarListenerGestion) {
-        window.iniciarListenerGestion();
-      }
 
       // Actualizar vista
       if (window.actualizarKPIsYAlertas) window.actualizarKPIsYAlertas();
@@ -2082,7 +2323,8 @@
       }
     };
 
-    window.editarStockDesdeAlerta = function(articulo, color, ancho, largo, grosor, invId) {
+    window.editarStockDesdeAlerta = async function(articulo, color, ancho, largo, grosor, invId) {
+      await asegurarInventarioCargado();
       const artNorm = String(articulo || '').trim().toLowerCase();
       const colNorm = String(color || '').trim().toLowerCase();
       const aNum = (ancho !== undefined && ancho !== null && ancho !== '' && ancho !== 'null') ? Number(ancho) : null;
@@ -2090,10 +2332,28 @@
       const gNum = (grosor !== undefined && grosor !== null && grosor !== '' && grosor !== 'null') ? Number(grosor) : null;
 
       if (artNorm === 'rollo') {
-        const rollo = rollosList.find(r => 
-          (r.color || r.tipo || '').trim().toLowerCase() === colNorm &&
-          (aNum === null || Number(r.ancho) === aNum)
-        );
+        let rollo = null;
+        try {
+          let q;
+          if (aNum !== null) {
+            q = query(collection(db, COL_ROLLOS), where("color", "==", color), where("ancho", "==", aNum), limit(1));
+          } else {
+            q = query(collection(db, COL_ROLLOS), where("color", "==", color), limit(1));
+          }
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const d = snap.docs[0];
+            rollo = { id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' };
+            const idx = rollosList.findIndex(r => r.id === rollo.id);
+            if (idx >= 0) {
+              rollosList[idx] = rollo;
+            } else {
+              rollosList.push(rollo);
+            }
+          }
+        } catch(e) {
+          console.warn("Aviso buscando rollo con query directa:", e);
+        }
         if (rollo) {
           editarRolloCompleto(rollo.id);
         } else {
@@ -2107,11 +2367,30 @@
           Swal.fire('Acceso denegado', 'Los empleados solo tienen permiso de consulta en Tableros.', 'warning');
           return;
         }
-        const tablero = tablerosList.find(t => 
-          Number(t.largo) === lNum &&
-          Number(t.grosor) === gNum &&
-          (aNum === null || Number(t.ancho) === aNum)
-        );
+        let tablero = null;
+        if (lNum !== null && gNum !== null) {
+          try {
+            let q;
+            if (aNum !== null) {
+              q = query(collection(db, COL_TABLEROS), where("largo", "==", lNum), where("grosor", "==", gNum), where("ancho", "==", aNum), limit(1));
+            } else {
+              q = query(collection(db, COL_TABLEROS), where("largo", "==", lNum), where("grosor", "==", gNum), limit(1));
+            }
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const d = snap.docs[0];
+              tablero = { id: d.id, ...d.data() };
+              const idx = tablerosList.findIndex(t => t.id === tablero.id);
+              if (idx >= 0) {
+                tablerosList[idx] = tablero;
+              } else {
+                tablerosList.push(tablero);
+              }
+            }
+          } catch(e) {
+            console.warn("Aviso buscando tablero con query directa:", e);
+          }
+        }
         if (tablero) {
           editarTableroCompleto(tablero.id);
         } else {
@@ -2144,12 +2423,11 @@
       }
     };
 
-    function actualizarKPIsYAlertas() {
-      // Evaluar productos bajo nivel de reposición
-      const listaAlertas = [];
-
+    function calcularListaAlertasActual() {
+      const lista = [];
       inventarioList.forEach(item => {
         const reposicion = Number(item.stockreposicion || 0);
+        if (reposicion <= 0) return;
         const desglose = calcularStockTotalArticulo(item.articulo, item.color || item.tipo, item.largo, item.ancho, item.grosor);
         const tipoLabel = item.articulo === 'Tablero'
           ? ((item.largo !== undefined && item.grosor !== undefined && item.largo !== null && item.grosor !== null)
@@ -2160,14 +2438,14 @@
               : (item.color || item.tipo || '-');
         
         if (desglose.total < reposicion) {
-          listaAlertas.push({
+          lista.push({
             id: item.id,
             articulo: item.articulo,
             tipo: tipoLabel,
             color: item.color || item.tipo || '',
-            ancho: item.ancho,
-            largo: item.largo,
-            grosor: item.grosor,
+            ancho: (item.ancho !== undefined && item.ancho !== null && item.ancho !== '') ? Number(item.ancho) : null,
+            largo: (item.largo !== undefined && item.largo !== null && item.largo !== '') ? Number(item.largo) : null,
+            grosor: (item.grosor !== undefined && item.grosor !== null && item.grosor !== '') ? Number(item.grosor) : null,
             stockActual: desglose.total,
             stockReposicion: reposicion,
             faltante: reposicion - desglose.total,
@@ -2175,6 +2453,77 @@
           });
         }
       });
+      return lista;
+    }
+    window.calcularListaAlertasActual = calcularListaAlertasActual;
+
+    // Sincronización automática de alertas activas en Firestore (solo si los datos ya están en memoria)
+    let debounceTimerGuardarAlertas = null;
+    function programarActualizacionAlertasActivas() {
+      if (debounceTimerGuardarAlertas) clearTimeout(debounceTimerGuardarAlertas);
+      debounceTimerGuardarAlertas = setTimeout(async () => {
+        try {
+          // Solo si tenemos las listas en memoria recalculamos en lote para evitar lecturas masivas
+          if (inventarioList.length > 0 && (bobinasList.length > 0 || rollosList.length > 0 || tablerosList.length > 0)) {
+            const lista = calcularListaAlertasActual();
+            await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
+              items: lista,
+              total: lista.length,
+              actualizado: serverTimestamp(),
+              actualizadoPor: currentUserData.nombre || "Usuario"
+            }, { merge: true });
+            alertasActivasList = lista;
+            actualizarKPIsYAlertas();
+            console.log("Documento 'alertas_activas' sincronizado en Firestore:", lista.length, "alertas");
+          }
+        } catch (e) {
+          console.warn("Aviso actualizando alertas_activas en Firestore:", e);
+        }
+      }, 600);
+    }
+    window.programarActualizacionAlertasActivas = programarActualizacionAlertasActivas;
+
+    // Guardado manual inicial mediante el botón de la interfaz
+    window.guardarAlertasActivasEnFirestore = async function() {
+      try {
+        await asegurarInventarioCargado();
+        if (!bobinasList || bobinasList.length === 0) {
+          const sB = await getDocs(collection(db, COL_BOBINAS));
+          bobinasList = sB.docs.map(d => ({ id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' }));
+        }
+        if (!rollosList || rollosList.length === 0) {
+          const sR = await getDocs(collection(db, COL_ROLLOS));
+          rollosList = sR.docs.map(d => ({ id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' }));
+        }
+        if (!tablerosList || tablerosList.length === 0) {
+          const sT = await getDocs(collection(db, COL_TABLEROS));
+          tablerosList = sT.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+        const lista = calcularListaAlertasActual();
+        await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
+          items: lista,
+          total: lista.length,
+          actualizado: serverTimestamp(),
+          actualizadoPor: currentUserData.nombre || "Admin"
+        }, { merge: true });
+        alertasActivasList = lista;
+        actualizarKPIsYAlertas();
+
+        Swal.fire({
+          icon: 'success',
+          title: '¡Alertas guardadas con éxito!',
+          html: `Se han guardado <b>${lista.length} alertas activas</b> en la base de datos.<br><br>A partir de ahora, cada vez que se modifique cualquier stock, la base de datos mantendrá este documento actualizado automáticamente.`,
+          confirmButtonColor: '#0026e6'
+        });
+      } catch (err) {
+        console.error("Error al guardar alertas activas en Firestore:", err);
+        Swal.fire('Error', 'No se pudieron guardar las alertas: ' + err.message, 'error');
+      }
+    };
+
+    function actualizarKPIsYAlertas() {
+      // Leer y mostrar directamente las alertas sincronizadas desde Firestore (1 lectura global)
+      const listaAlertas = Array.isArray(alertasActivasList) ? alertasActivasList : [];
 
       // Actualizar Badges y Banner
       const badgeAlertas = document.getElementById("badge-alertas");
@@ -2306,13 +2655,17 @@
 
         if (!invItem) return;
         const reposicion = Number(invItem.stockreposicion || 0);
-        if (reposicion <= 0) return;
 
         // 2. Calcular stock actual
         const desglose = calcularStockTotalArticulo(articulo, color, largo, ancho, grosor);
         const cantidadActual = desglose.total;
 
-        // 3. Comprobar si está bajo mínimos de reposición
+        // Sincronizar inmediatamente esta alerta en alertas_activas (¡0 lecturas de stock, 1 sola escritura!)
+        await sincronizarAlertaArticulo(articulo, color, largo, ancho, grosor, cantidadActual, reposicion, invItem.id);
+
+        if (reposicion <= 0) return;
+
+        // 3. Comprobar si está bajo mínimos de reposición para el webhook
         if (cantidadActual < reposicion) {
           let tipoStr = '';
           if (artNorm === 'bobina') {
@@ -3220,6 +3573,80 @@
             updateData.grosor = deleteField();
           }
           await updateDoc(doc(db, COL_INVENTARIO, docId), updateData);
+          const idxLocal = inventarioList.findIndex(i => i.id === docId);
+          if (idxLocal >= 0) {
+            inventarioList[idxLocal] = { ...inventarioList[idxLocal], ...dataToSave, id: docId };
+          }
+
+          // Si se ha modificado el color o nombre en inventario, sincronizar en colecciones de stock existentes
+          const artLower = articulo.toLowerCase();
+          const colorAnt = (anterior?.color || anterior?.tipo || '').trim();
+          const colorNuev = (color || tipo || '').trim();
+          if (colorAnt && colorNuev && colorAnt.toLowerCase() !== colorNuev.toLowerCase()) {
+            if (artLower === 'bobina') {
+              const bobinasParaActualizar = bobinasList.filter(b => (b.color || b.tipo || '').trim().toLowerCase() === colorAnt.toLowerCase());
+              for (const b of bobinasParaActualizar) {
+                b.color = colorNuev;
+                updateDoc(doc(db, COL_BOBINAS, b.id), { color: colorNuev, tipo: deleteField() }).catch(e => console.warn("Aviso renombrando bobina en stock:", e));
+              }
+            } else if (artLower === 'rollo') {
+              const rollosParaActualizar = rollosList.filter(r => (r.color || r.tipo || '').trim().toLowerCase() === colorAnt.toLowerCase());
+              for (const r of rollosParaActualizar) {
+                r.color = colorNuev;
+                updateDoc(doc(db, COL_ROLLOS, r.id), { color: colorNuev, tipo: deleteField() }).catch(e => console.warn("Aviso renombrando rollo en stock:", e));
+              }
+            }
+          }
+
+          // Sincronizar inmediatamente la alerta en alertasActivasList y en Firestore (0 lecturas)
+          const colorFinal = colorNuev || color;
+          const desglose = calcularStockTotalArticulo(articulo, colorFinal, largo, ancho, grosor);
+          const stockActual = desglose.total;
+          const reposicionNum = Number(stockreposicion || 0);
+          const idxAlerta = alertasActivasList.findIndex(a => a.id === docId);
+
+          if (reposicionNum > 0 && stockActual < reposicionNum) {
+            const tipoLabel = (articulo === 'Tablero') 
+              ? (ancho ? `${largo} x ${ancho} x ${grosor} mm` : `${largo} x ${grosor} mm`)
+              : (articulo === 'Rollo' && ancho ? `${colorFinal} - ${ancho} cm` : colorFinal);
+            const alertaData = {
+              id: docId,
+              articulo: articulo,
+              tipo: tipoLabel,
+              color: colorFinal,
+              ancho: ancho,
+              largo: largo,
+              grosor: grosor,
+              stockActual: stockActual,
+              stockReposicion: reposicionNum,
+              faltante: reposicionNum - stockActual
+            };
+            if (idxAlerta >= 0) {
+              alertasActivasList[idxAlerta] = alertaData;
+            } else {
+              alertasActivasList.push(alertaData);
+            }
+          } else {
+            // Si el stock actual es suficiente o reposición es 0, quitar de alertas
+            if (idxAlerta >= 0) {
+              alertasActivasList.splice(idxAlerta, 1);
+            }
+          }
+
+          // Incrementar semáforo de versión de inventario
+          versionInventarioServidor += 1;
+          versionInventarioCargada = versionInventarioServidor;
+
+          // Guardar alertas y nueva versión en el documento único central (1 sola escritura, 0 lecturas)
+          await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
+            items: alertasActivasList,
+            total: alertasActivasList.length,
+            version_inventario: versionInventarioServidor,
+            actualizado: serverTimestamp(),
+            actualizadoPor: currentUserData.nombre || "Usuario"
+          }, { merge: true });
+          actualizarKPIsYAlertas();
+
           const anchoVal = (articulo.toLowerCase() === "rollo" && ancho) ? `${ancho} cm` : '';
           const descColorMedida = anchoVal ? `${color} - ${anchoVal}` : (tipo || color);
           const descAccion = anchoVal 
@@ -3228,7 +3655,47 @@
           await registrarEnHistorico(articulo, descColorMedida, descAccion);
         } else {
           dataToSave.creado = serverTimestamp();
-          await addDoc(collection(db, COL_INVENTARIO), dataToSave);
+          const docRef = await addDoc(collection(db, COL_INVENTARIO), dataToSave);
+          const newId = docRef.id;
+          if (!inventarioList.some(i => i.id === newId)) {
+            inventarioList.push({ id: newId, ...dataToSave });
+          }
+
+          const colorFinal = color || tipo;
+          const desglose = calcularStockTotalArticulo(articulo, colorFinal, largo, ancho, grosor);
+          const stockActual = desglose.total;
+          const reposicionNum = Number(stockreposicion || 0);
+
+          if (reposicionNum > 0 && stockActual < reposicionNum) {
+            const tipoLabel = (articulo === 'Tablero') 
+              ? (ancho ? `${largo} x ${ancho} x ${grosor} mm` : `${largo} x ${grosor} mm`)
+              : (articulo === 'Rollo' && ancho ? `${colorFinal} - ${ancho} cm` : colorFinal);
+            alertasActivasList.push({
+              id: newId,
+              articulo: articulo,
+              tipo: tipoLabel,
+              color: colorFinal,
+              ancho: ancho,
+              largo: largo,
+              grosor: grosor,
+              stockActual: stockActual,
+              stockReposicion: reposicionNum,
+              faltante: reposicionNum - stockActual
+            });
+          }
+
+          versionInventarioServidor += 1;
+          versionInventarioCargada = versionInventarioServidor;
+
+          await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
+            items: alertasActivasList,
+            total: alertasActivasList.length,
+            version_inventario: versionInventarioServidor,
+            actualizado: serverTimestamp(),
+            actualizadoPor: currentUserData.nombre || "Usuario"
+          }, { merge: true });
+          actualizarKPIsYAlertas();
+
           const anchoVal = (articulo.toLowerCase() === "rollo" && ancho) ? `${ancho} cm` : '';
           const descColorMedida = anchoVal ? `${color} - ${anchoVal}` : (tipo || color);
           const descAccion = anchoVal 
@@ -3237,6 +3704,7 @@
           await registrarEnHistorico(articulo, descColorMedida, descAccion);
         }
         cerrarModal("modal-inventario");
+        if (window.renderInventario) renderInventario();
         Swal.fire({ icon: 'success', title: 'Guardado', text: 'Inventario actualizado correctamente', timer: 1500, showConfirmButton: false });
       } catch (err) {
         console.error("Error guardando inventario:", err);
@@ -3264,6 +3732,22 @@
       if (res.isConfirmed) {
         try {
           await deleteDoc(doc(db, COL_INVENTARIO, id));
+          inventarioList = inventarioList.filter(i => i.id !== id);
+          alertasActivasList = alertasActivasList.filter(a => a.id !== id);
+          
+          versionInventarioServidor += 1;
+          versionInventarioCargada = versionInventarioServidor;
+
+          await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
+            items: alertasActivasList,
+            total: alertasActivasList.length,
+            version_inventario: versionInventarioServidor,
+            actualizado: serverTimestamp(),
+            actualizadoPor: currentUserData.nombre || "Usuario"
+          }, { merge: true });
+          actualizarKPIsYAlertas();
+          if (window.renderInventario) renderInventario();
+
           await registrarEnHistorico(articulo, descColorMedida, `Eliminado artículo de inventario base`);
           Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1200, showConfirmButton: false });
         } catch (err) {
@@ -3273,7 +3757,8 @@
     };
 
     // ==================== OPERACIONES: BOBINAS ====================
-    window.abrirModalBobina = function(colorPreseleccionado = "") {
+    window.abrirModalBobina = async function(colorPreseleccionado = "") {
+      await asegurarInventarioCargado();
       document.getElementById("form-bobina").reset();
       document.getElementById("bobina-doc-id").value = "";
       cargarTiposEnSelect("Bobina", "bobina-color", colorPreseleccionado);
@@ -3287,7 +3772,8 @@
       document.getElementById("modal-bobina").classList.remove("hidden");
     };
 
-    window.editarDimensionesBobina = function(id) {
+    window.editarDimensionesBobina = async function(id) {
+      await asegurarInventarioCargado();
       const b = bobinasList.find(item => item.id === id);
       if (!b) return;
       document.getElementById("bobina-doc-id").value = b.id;
@@ -3431,7 +3917,8 @@
     };
 
     // ==================== OPERACIONES: ROLLOS ====================
-    window.abrirModalRollo = function() {
+    window.abrirModalRollo = async function() {
+      await asegurarInventarioCargado();
       document.getElementById("form-rollo").reset();
       document.getElementById("rollo-doc-id").value = "";
       document.getElementById("rollo-color").value = "";
@@ -3443,7 +3930,8 @@
       document.getElementById("modal-rollo").classList.remove("hidden");
     };
 
-    window.editarRolloCompleto = function(id) {
+    window.editarRolloCompleto = async function(id) {
+      await asegurarInventarioCargado();
       const r = rollosList.find(item => item.id === id);
       if (!r) return;
       document.getElementById("rollo-doc-id").value = r.id;
@@ -3607,7 +4095,8 @@
     };
 
     // ==================== OPERACIONES: TABLEROS ====================
-    window.abrirModalTablero = function() {
+    window.abrirModalTablero = async function() {
+      await asegurarInventarioCargado();
       document.getElementById("form-tablero").reset();
       document.getElementById("tablero-doc-id").value = "";
       document.getElementById("tablero-largo").value = "";
@@ -3620,7 +4109,8 @@
       document.getElementById("modal-tablero").classList.remove("hidden");
     };
 
-    window.editarTableroCompleto = function(id) {
+    window.editarTableroCompleto = async function(id) {
+      await asegurarInventarioCargado();
       const t = tablerosList.find(item => item.id === id);
       if (!t) return;
       document.getElementById("tablero-doc-id").value = t.id;
@@ -4518,23 +5008,9 @@
       // Ocultar menú móvil si estaba abierto
       document.getElementById('mobile-menu').classList.add('hidden');
 
-      // Desconectar o conectar listeners en tiempo real según la pestaña activa para optimizar lecturas
-      if (tabName === 'terminado') {
-        if (window.iniciarListenerStockTerminado) window.iniciarListenerStockTerminado();
-      } else {
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-      }
-
-      if (tabName === 'historico') {
-        if (window.iniciarListenerHistorico) window.iniciarListenerHistorico();
-      } else {
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-      }
-
-      if (tabName === 'gestion' || tabName === 'usuarios') {
-        if (window.iniciarListenerGestion) window.iniciarListenerGestion();
-      } else {
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
+      // Desconectar o conectar listeners en tiempo real bajo demanda según la pestaña activa para optimizar drásticamente las lecturas
+      if (window.conectarListenersSegunPestaña) {
+        window.conectarListenersSegunPestaña(tabName);
       }
 
       // Re-renderizar datos de la pestaña activa con los datos más recientes
