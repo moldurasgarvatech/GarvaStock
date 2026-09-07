@@ -58,6 +58,12 @@
     .custom-scrollbar::-webkit-scrollbar-thumb:hover {
       background: #94a3b8;
     }
+    /* En móviles evita el zoom involuntario de iOS Safari al hacer focus en inputs */
+    @media screen and (max-width: 768px) {
+      input, select, textarea {
+        font-size: 16px !important;
+      }
+    }
   </style>
 </head>
 <body class="min-h-screen text-slate-800 flex flex-col antialiased selection:bg-garva-700 selection:text-white">
@@ -751,7 +757,7 @@
 
   <!-- MODAL: Inventario (Crear/Editar) -->
   <div id="modal-inventario" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 id="modal-inventario-title" class="font-bold text-slate-900 text-base">Artículo en Inventario</h3>
         <button onclick="cerrarModal('modal-inventario')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -811,7 +817,7 @@
 
   <!-- MODAL: Bobina (Crear/Editar) -->
   <div id="modal-bobina" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 id="modal-bobina-title" class="font-bold text-slate-900 text-base">Registrar / Modificar Bobina</h3>
         <button onclick="cerrarModal('modal-bobina')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -847,7 +853,7 @@
 
   <!-- MODAL: Rollo (Crear/Editar) -->
   <div id="modal-rollo" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 id="modal-rollo-title" class="font-bold text-slate-900 text-base">Registrar / Modificar Rollo</h3>
         <button onclick="cerrarModal('modal-rollo')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -882,7 +888,7 @@
 
   <!-- MODAL: Tablero (Crear/Editar) -->
   <div id="modal-tablero" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 id="modal-tablero-title" class="font-bold text-slate-900 text-base">Registrar / Modificar Tablero</h3>
         <button onclick="cerrarModal('modal-tablero')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -919,7 +925,7 @@
 
   <!-- MODAL: Material Terminado (Crear/Editar) -->
   <div id="modal-terminado" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 id="modal-terminado-title" class="font-bold text-slate-900 text-base">Añadir Material Terminado</h3>
         <button onclick="cerrarModal('modal-terminado')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -951,7 +957,7 @@
 
   <!-- MODAL: Usuario (Crear/Editar) -->
   <div id="modal-usuario" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 id="modal-usuario-title" class="font-bold text-slate-900 text-base">Usuario del Sistema</h3>
         <button onclick="cerrarModal('modal-usuario')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
@@ -999,7 +1005,7 @@
 
   <!-- MODAL: Cambiar Contraseña Propia -->
   <div id="modal-cambiar-password" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-6 space-y-4">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-full bg-garva-50 text-garva-700 flex items-center justify-center">
@@ -4024,10 +4030,24 @@
           await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
         } else {
           // Si ya existe con ese tamaño (color y ancho), se suma la cantidad
-          const existente = rollosList.find(r => 
+          let existente = rollosList.find(r => 
             ((r.color || r.tipo || "").trim().toLowerCase() === color.toLowerCase()) && 
             Number(r.ancho) === ancho
           );
+
+          if (!existente) {
+            try {
+              const qR = query(collection(db, COL_ROLLOS), where("color", "==", color), where("ancho", "==", ancho), limit(1));
+              const snapR = await getDocs(qR);
+              if (!snapR.empty) {
+                const docR = snapR.docs[0];
+                existente = { id: docR.id, ...docR.data(), color: docR.data().color || docR.data().tipo || '' };
+                rollosList.push(existente);
+              }
+            } catch(e) {
+              console.warn("Aviso comprobando rollo existente en BBDD:", e);
+            }
+          }
 
           const descRollo = ancho ? `${color} - ${ancho} cm` : color;
           if (existente) {
@@ -4220,13 +4240,32 @@
           await comprobarYEnviarAlertaWebhook("Tablero", null, largo, ancho, grosor);
         } else {
           // Si ya existe con ese tamaño (largo, ancho y grosor), se suma la cantidad
-          const existente = tablerosList.find(t => {
+          let existente = tablerosList.find(t => {
             const sameL = Number(t.largo) === largo;
             const sameG = Number(t.grosor) === grosor;
             const tAncho = (t.ancho !== undefined && t.ancho !== null && t.ancho !== '') ? Number(t.ancho) : null;
             const sameA = (ancho === null && tAncho === null) || (ancho !== null && tAncho === ancho);
             return sameL && sameG && sameA;
           });
+
+          if (!existente && largo !== null && grosor !== null) {
+            try {
+              let qT;
+              if (ancho !== null) {
+                qT = query(collection(db, COL_TABLEROS), where("largo", "==", largo), where("grosor", "==", grosor), where("ancho", "==", ancho), limit(1));
+              } else {
+                qT = query(collection(db, COL_TABLEROS), where("largo", "==", largo), where("grosor", "==", grosor), limit(1));
+              }
+              const snapT = await getDocs(qT);
+              if (!snapT.empty) {
+                const docT = snapT.docs[0];
+                existente = { id: docT.id, ...docT.data() };
+                tablerosList.push(existente);
+              }
+            } catch(e) {
+              console.warn("Aviso comprobando tablero existente en BBDD:", e);
+            }
+          }
 
           if (existente) {
             const cantAnterior = existente.cantidad;
@@ -5117,13 +5156,29 @@
 
     function escapeQuotes(str) {
       if (!str) return '';
-      return String(str).replace(/'/g, "\'").replace(/"/g, '&quot;');
+      return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
     }
     window.escapeQuotes = escapeQuotes;
 
-    // Inicializar Lucide Icons
+    // Inicializar Lucide Icons y listeners globales de interfaz
     document.addEventListener('DOMContentLoaded', () => {
       lucide.createIcons();
+
+      // Cerrar modales al hacer clic en el fondo oscuro (backdrop)
+      document.querySelectorAll('.fixed.inset-0').forEach(backdrop => {
+        backdrop.addEventListener('click', (e) => {
+          if (e.target === backdrop && backdrop.id !== 'auth-container') {
+            backdrop.classList.add('hidden');
+          }
+        });
+      });
+
+      // Cerrar modales al pulsar la tecla Escape
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          document.querySelectorAll('.fixed.inset-0:not(#auth-container)').forEach(m => m.classList.add('hidden'));
+        }
+      });
     });
   </script>
 </body>
