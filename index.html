@@ -91,7 +91,12 @@
         </div>
 
         <div>
-          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5" for="login-password">Contraseña</label>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600" for="login-password">Contraseña</label>
+            <button type="button" id="btn-forgot-password" onclick="olvidarPasswordPrompt()" class="text-xs text-garva-700 hover:text-garva-800 font-medium hover:underline focus:outline-none transition">
+              ¿Olvidaste tu contraseña?
+            </button>
+          </div>
           <div class="relative">
             <i data-lucide="lock" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
             <input type="password" id="login-password" required placeholder="••••••••"
@@ -482,11 +487,18 @@
           </button>
         </div>
 
-        <!-- Filtro Tableros -->
-        <div class="relative">
-          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
-          <input type="text" id="filtro-tableros" oninput="filtrarTabla('tableros')" placeholder="Buscar tableros por medidas (largo, ancho, grosor)..."
-            class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700" />
+        <!-- Filtros Tableros (Largo x Ancho y Grosor) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="relative">
+            <i data-lucide="ruler" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+            <input type="text" id="filtro-tableros-dimensiones" oninput="filtrarTabla('tableros')" placeholder="Filtrar por Largo x Ancho (ej: 2440 x 1220)..."
+              class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700" />
+          </div>
+          <div class="relative">
+            <i data-lucide="layers" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+            <input type="text" id="filtro-tableros-grosor" oninput="filtrarTabla('tableros')" placeholder="Filtrar por Grosor (mm)..."
+              class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700" />
+          </div>
         </div>
 
         <!-- Tabla de Tableros -->
@@ -526,7 +538,7 @@
         <!-- Filtro Material Terminado -->
         <div class="relative">
           <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
-          <input type="text" id="filtro-terminado" oninput="filtrarTabla('terminado')" placeholder="Filtrar por Tipo..."
+          <input type="text" id="filtro-terminado" oninput="filtrarTabla('terminado')" placeholder="Buscar por tipo o color de material terminado..."
             class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-garva-700" />
         </div>
 
@@ -537,12 +549,13 @@
               <thead>
                 <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold">
                   <th class="py-3 px-4">Tipo</th>
+                  <th class="py-3 px-4">Color</th>
                   <th class="py-3 px-4 text-center">Cantidad (Uds)</th>
                   <th class="py-3 px-4 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody id="tabla-terminado-body" class="divide-y divide-slate-100 text-slate-700">
-                <tr><td colspan="3" class="text-center py-6 text-slate-400">Cargando material terminado...</td></tr>
+                <tr><td colspan="4" class="text-center py-6 text-slate-400">Cargando material terminado...</td></tr>
               </tbody>
             </table>
           </div>
@@ -880,7 +893,12 @@
         <input type="hidden" id="terminado-doc-id" />
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">Tipo</label>
-          <input type="text" id="terminado-tipo" required placeholder="Ej: Moldura Curva 45mm, Rodapié Roble, etc."
+          <input type="text" id="terminado-tipo" required placeholder="Ej: Moldura Curva 45mm, Rodapié, etc."
+            class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Color</label>
+          <input type="text" id="terminado-color" required placeholder="Ej: Blanco, Roble, Nogal, etc."
             class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-garva-700 focus:outline-none" />
         </div>
         <div>
@@ -994,7 +1012,8 @@
       createUserWithEmailAndPassword,
       EmailAuthProvider,
       reauthenticateWithCredential,
-      updatePassword
+      updatePassword,
+      sendPasswordResetEmail
     } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
     import { 
       getFirestore, 
@@ -1088,6 +1107,73 @@
         lucide.createIcons();
       }
     });
+
+    // Recuperar / Restablecer contraseña olvidada
+    window.olvidarPasswordPrompt = async function() {
+      const emailInput = document.getElementById("login-email");
+      const prefillEmail = emailInput ? emailInput.value.trim() : "";
+
+      const { value: email } = await Swal.fire({
+        title: 'Recuperar contraseña',
+        text: 'Introduce tu correo electrónico para recibir un enlace seguro de restablecimiento de contraseña:',
+        input: 'email',
+        inputValue: prefillEmail,
+        inputPlaceholder: 'usuario@moldurasgarva.es',
+        showCancelButton: true,
+        confirmButtonColor: '#0026e6',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Enviar enlace',
+        cancelButtonText: 'Cancelar',
+        inputValidator: (value) => {
+          if (!value || !value.includes('@')) {
+            return 'Por favor, introduce un correo electrónico válido.';
+          }
+        }
+      });
+
+      if (email) {
+        try {
+          Swal.fire({
+            title: 'Enviando correo...',
+            text: 'Por favor, espera un momento.',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+          });
+
+          await sendPasswordResetEmail(auth, email.trim());
+
+          Swal.fire({
+            icon: 'success',
+            title: '¡Correo enviado!',
+            html: `
+              <p class="text-sm text-slate-600 mb-3">Hemos enviado el enlace de restablecimiento de contraseña a <strong>${email.trim()}</strong>.</p>
+              <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 font-medium text-left flex items-start gap-2">
+                <span class="text-base">⚠️</span>
+                <span><strong>Importante:</strong> Si no lo encuentras en tu bandeja de entrada, <strong>revisa tu carpeta de Spam o Correo no deseado</strong>.</span>
+              </div>
+            `,
+            confirmButtonColor: '#0026e6',
+            confirmButtonText: 'Entendido'
+          });
+        } catch (err) {
+          console.error("Error al enviar correo de recuperación:", err);
+          let errorMsg = "No se pudo enviar el correo de recuperación.";
+          if (err.code === 'auth/user-not-found') {
+            errorMsg = "No existe ningún usuario registrado con ese correo electrónico.";
+          } else if (err.code === 'auth/invalid-email') {
+            errorMsg = "El formato del correo electrónico no es válido.";
+          } else if (err.code === 'auth/too-many-requests') {
+            errorMsg = "Demasiados intentos seguidos. Por favor, espera unos minutos y vuelve a intentarlo.";
+          }
+          Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: errorMsg,
+            confirmButtonColor: '#0026e6'
+          });
+        }
+      }
+    };
 
     // Manejar Logout
     btnLogout.addEventListener("click", async () => {
@@ -2013,8 +2099,8 @@
             body: JSON.stringify(payload)
           });
 
-          console.log('Webhook de alerta de stock enviado a Make.com:', payload, 'Status:', res.status);
-          await registrarEnHistorico("Alerta Webhook", tipoStr, `Notificación de stock mínimo enviada a Make.com (${articuloCapitalizado}: ${cantidadActual} uds)`);
+          console.log('Alerta de stock mínimo enviada por correo:', payload, 'Status:', res.status);
+          await registrarEnHistorico("Aviso Stock", tipoStr, `Enviado correo de alerta de stock mínimo (${articuloCapitalizado}: ${cantidadActual} uds restantes)`);
         }
       } catch (err) {
         console.error('Error al comprobar/enviar alerta a Make.com:', err);
@@ -2295,16 +2381,38 @@
     // RENDER: TABLEROS
     window.renderTableros = function() {
       const tbody = document.getElementById("tabla-tableros-body");
-      const filtro = (document.getElementById("filtro-tableros")?.value || "").toLowerCase().trim();
+      const filtroDim = (document.getElementById("filtro-tableros-dimensiones")?.value || document.getElementById("filtro-tableros")?.value || "").toLowerCase().trim();
+      const filtroGrosor = (document.getElementById("filtro-tableros-grosor")?.value || "").toLowerCase().trim();
       const adminActivo = esAdmin();
 
       const items = tablerosList.filter(item => {
-        if (!filtro) return true;
-        const lStr = String(item.largo || "");
-        const aStr = String(item.ancho || "");
-        const gStr = String(item.grosor || "");
-        const combo = `${lStr}x${aStr}x${gStr} ${lStr} x ${aStr} x ${gStr} ${lStr}x${gStr} ${lStr} ${aStr} ${gStr}`;
-        return combo.toLowerCase().includes(filtro) || (item.tipo || "").toLowerCase().includes(filtro);
+        const lStr = String(item.largo || "").trim();
+        const aStr = (item.ancho !== undefined && item.ancho !== null && item.ancho !== "") ? String(item.ancho).trim() : "";
+        const gStr = String(item.grosor || "").trim();
+
+        // 1. Filtro Largo x Ancho
+        let matchDim = true;
+        if (filtroDim) {
+          const combo = aStr ? `${lStr}x${aStr} ${lStr} x ${aStr} ${lStr}*${aStr} ${lStr} ${aStr}`.toLowerCase() : lStr.toLowerCase();
+          if (combo.includes(filtroDim) || (item.tipo || "").toLowerCase().includes(filtroDim)) {
+            matchDim = true;
+          } else {
+            const tokens = filtroDim.split(/[\s,xX*]+/).filter(Boolean);
+            if (tokens.length > 0) {
+              matchDim = tokens.every(tok => (lStr.includes(tok) || (aStr && aStr.includes(tok))));
+            }
+          }
+        }
+
+        // 2. Filtro Grosor
+        let matchGrosor = true;
+        if (filtroGrosor) {
+          const gLower = gStr.toLowerCase();
+          const cleanFiltro = filtroGrosor.replace(/mm/g, '').trim();
+          matchGrosor = gLower.includes(cleanFiltro) || `${gLower}mm`.includes(filtroGrosor) || `${gLower} mm`.includes(filtroGrosor);
+        }
+
+        return matchDim && matchGrosor;
       });
 
       // Ordenar por largo, ancho y grosor descendentes siempre
@@ -2323,7 +2431,7 @@
       });
 
       if (items.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No hay tableros registrados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No hay tableros registrados que coincidan con los filtros.</td></tr>`;
         return;
       }
 
@@ -2378,20 +2486,32 @@
       const items = stockTerminadoList.filter(item => {
         if (!filtro) return true;
         const tStr = String(item.tipo || "").toLowerCase();
-        return tStr.includes(filtro);
+        const cStr = String(item.color || "").toLowerCase();
+        const combo = `${tStr} ${cStr}`;
+        return tStr.includes(filtro) || cStr.includes(filtro) || combo.includes(filtro);
+      });
+
+      // Ordenar por tipo A-Z y luego por color A-Z
+      items.sort((a, b) => {
+        const compTipo = (a.tipo || "").localeCompare(b.tipo || "", 'es', { sensitivity: 'base' });
+        if (compTipo !== 0) return compTipo;
+        return (a.color || "").localeCompare(b.color || "", 'es', { sensitivity: 'base' });
       });
 
       if (items.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-slate-400">No hay material terminado registrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">No hay material terminado registrado.</td></tr>`;
         return;
       }
 
       let html = "";
       items.forEach(item => {
         const tipoDisplay = item.tipo || "Sin tipo";
+        const colorDisplay = item.color || "-";
+        const labelCompleto = item.color ? `${tipoDisplay} - ${item.color}` : tipoDisplay;
         html += `
           <tr class="hover:bg-slate-50 transition border-b border-slate-100">
             <td class="py-3 px-4 font-semibold text-slate-900">${escapeHtml(tipoDisplay)}</td>
+            <td class="py-3 px-4 font-medium text-slate-700">${escapeHtml(colorDisplay)}</td>
             <td class="py-3 px-4 text-center">
               ${adminActivo ? `
                 <div class="inline-flex items-center justify-center gap-1.5">
@@ -2408,7 +2528,7 @@
                 <button onclick="editarStockTerminado('${item.id}')" class="p-1.5 text-slate-500 hover:text-garva-700 hover:bg-garva-50 rounded" title="Editar">
                   <i data-lucide="edit-3" class="w-4 h-4"></i>
                 </button>
-                <button onclick="eliminarStockTerminado('${item.id}', '${escapeQuotes(tipoDisplay)}')" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="Eliminar">
+                <button onclick="eliminarStockTerminado('${item.id}', '${escapeQuotes(labelCompleto)}')" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded" title="Eliminar">
                   <i data-lucide="trash-2" class="w-4 h-4"></i>
                 </button>
               ` : `
@@ -2450,13 +2570,72 @@
           fechaStr = d.toLocaleDateString("es-ES") + " " + d.toLocaleTimeString("es-ES", { hour: '2-digit', minute: '2-digit' });
         }
 
+        let artDisplay = item.articulo || '-';
+        if (artDisplay.toLowerCase().includes('webhook')) {
+          artDisplay = 'Aviso Stock';
+        }
+
+        let descColorMedida = item.color || item.tipo || '-';
+
+        // 1. Quitar paréntesis del color en Material Terminado (ej: "Moldura Curva (Blanco)" -> "Moldura Curva - Blanco")
+        if (artDisplay.toLowerCase() === 'material terminado') {
+          descColorMedida = descColorMedida.replace(/\s*\(([^)]+)\)/g, ' - $1');
+        }
+
+        // 2. Ancho del rollo junto en Color / Medidas si no lo tenía ya
+        if (artDisplay.toLowerCase() === 'rollo' && !descColorMedida.includes('cm')) {
+          const m = (item.descripcion || '').match(/ancho\s*(\d+(?:\.\d+)?)\s*cm|\((\d+(?:\.\d+)?)\s*cm\)/i);
+          let anchoEncontrado = m ? (m[1] || m[2]) : null;
+
+          // Si no venía en la descripción (ej: registros antiguos creados desde inventario), buscar en inventario o stock
+          if (!anchoEncontrado) {
+            const cNorm = descColorMedida.trim().toLowerCase();
+            const invItem = inventarioList.find(i => 
+              (i.articulo || '').toLowerCase() === 'rollo' && 
+              (i.color || i.tipo || '').trim().toLowerCase() === cNorm &&
+              i.ancho
+            );
+            if (invItem && invItem.ancho) {
+              anchoEncontrado = invItem.ancho;
+            } else {
+              const rolloItem = rollosList.find(r => 
+                (r.color || r.tipo || '').trim().toLowerCase() === cNorm &&
+                r.ancho
+              );
+              if (rolloItem && rolloItem.ancho) {
+                anchoEncontrado = rolloItem.ancho;
+              }
+            }
+          }
+
+          if (anchoEncontrado) {
+            descColorMedida = `${descColorMedida} - ${anchoEncontrado} cm`;
+          }
+        }
+
+        // 3. Limpiar mensajes de webhook/Make a texto comprensible de aviso por correo
+        let descDisplay = item.descripcion || '';
+        descDisplay = descDisplay
+          .replace(/Notificación de stock mínimo enviada a Make\.com/gi, 'Enviado correo de alerta de stock mínimo')
+          .replace(/a Make\.com/gi, 'por correo')
+          .replace(/alerta webhook/gi, 'alerta por correo');
+
+        if (artDisplay.toLowerCase() === 'rollo' && descColorMedida.includes('cm')) {
+          const mAncho = descColorMedida.match(/-\s*(\d+(?:\.\d+)?\s*cm)/i);
+          if (mAncho && !descDisplay.includes('cm')) {
+            descDisplay = descDisplay
+              .replace(/Creado nuevo artículo en inventario/i, `Creado nuevo rollo (${mAncho[1]}) en inventario`)
+              .replace(/Modificado inventario/i, `Modificado rollo (${mAncho[1]}) en inventario`);
+          }
+        }
+
         html += `
           <tr class="hover:bg-slate-50 transition border-b border-slate-100">
             <td class="py-3 px-4 text-slate-500 font-mono text-[11px] whitespace-nowrap">${fechaStr}</td>
             <td class="py-3 px-4 font-semibold text-slate-900">${escapeHtml(item.nombre || '')} ${escapeHtml(item.apellido || '')}</td>
-            <td class="py-3 px-4 font-medium text-slate-800">${escapeHtml(item.articulo || '-')}</td>
-            <td class="py-3 px-4"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-medium">${escapeHtml(item.color || item.tipo || '-')}</span></td>
-            <td class="py-3 px-4 text-slate-600">${escapeHtml(item.descripcion || '')}</td>
+            <td class="py-3 px-4 font-medium text-slate-800">${escapeHtml(artDisplay)}</td>
+            <td class="py-3 px-4"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-medium">${escapeHtml(descColorMedida)}</span></td>
+            <td class="py-3 px-4 text-slate-600">${escapeHtml(descDisplay)}</td>
           </tr>
         `;
       });
@@ -2592,11 +2771,21 @@
             updateData.grosor = deleteField();
           }
           await updateDoc(doc(db, COL_INVENTARIO, docId), updateData);
-          await registrarEnHistorico(articulo, color || tipo, `Modificado inventario: stock reposición de ${anterior?.stockreposicion} a ${stockreposicion}`);
+          const anchoVal = (articulo.toLowerCase() === "rollo" && ancho) ? `${ancho} cm` : '';
+          const descColorMedida = anchoVal ? `${color} - ${anchoVal}` : (tipo || color);
+          const descAccion = anchoVal 
+            ? `Modificado rollo en inventario (${anchoVal}): stock reposición de ${anterior?.stockreposicion} a ${stockreposicion}`
+            : `Modificado inventario: stock reposición de ${anterior?.stockreposicion} a ${stockreposicion}`;
+          await registrarEnHistorico(articulo, descColorMedida, descAccion);
         } else {
           dataToSave.creado = serverTimestamp();
           await addDoc(collection(db, COL_INVENTARIO), dataToSave);
-          await registrarEnHistorico(articulo, color || tipo, `Creado nuevo artículo en inventario con reposición mín. ${stockreposicion}`);
+          const anchoVal = (articulo.toLowerCase() === "rollo" && ancho) ? `${ancho} cm` : '';
+          const descColorMedida = anchoVal ? `${color} - ${anchoVal}` : (tipo || color);
+          const descAccion = anchoVal 
+            ? `Creado nuevo rollo en inventario (${anchoVal}) con reposición mín. ${stockreposicion}`
+            : `Creado nuevo artículo en inventario con reposición mín. ${stockreposicion}`;
+          await registrarEnHistorico(articulo, descColorMedida, descAccion);
         }
         cerrarModal("modal-inventario");
         Swal.fire({ icon: 'success', title: 'Guardado', text: 'Inventario actualizado correctamente', timer: 1500, showConfirmButton: false });
@@ -2611,9 +2800,11 @@
         Swal.fire('Acceso denegado', 'Los empleados solo tienen permiso de consulta en el inventario base.', 'warning');
         return;
       }
+      const invItem = inventarioList.find(i => i.id === id);
+      const descColorMedida = invItem ? obtenerTextoColorMedidas(invItem) : (tipo || articulo);
       const res = await Swal.fire({
         title: '¿Eliminar artículo?',
-        text: `Se eliminará "${articulo}" del catálogo base`,
+        text: `Se eliminará "${articulo} (${descColorMedida})" del catálogo base`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#e11d48',
@@ -2624,7 +2815,7 @@
       if (res.isConfirmed) {
         try {
           await deleteDoc(doc(db, COL_INVENTARIO, id));
-          await registrarEnHistorico(articulo, tipo, `Eliminado artículo de inventario base`);
+          await registrarEnHistorico(articulo, descColorMedida, `Eliminado artículo de inventario base`);
           Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1200, showConfirmButton: false });
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
@@ -2834,8 +3025,9 @@
             prev.ancho = ancho;
             prev.cantidad = cantidad;
           }
+          const descRollo = ancho ? `${color} - ${ancho} cm` : color;
           await updateDoc(doc(db, COL_ROLLOS, docId), { color, ancho, cantidad, tipo: deleteField() });
-          await registrarEnHistorico("Rollo", color, `Modificado rollo: cantidad de ${cantAnterior} a ${cantidad}, ancho ${ancho}cm`);
+          await registrarEnHistorico("Rollo", descRollo, `Modificado rollo: cantidad de ${cantAnterior} a ${cantidad}`);
           cerrarModal("modal-rollo");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Rollo modificado correctamente', timer: 1400, showConfirmButton: false });
           if (colorAnterior && (colorAnterior.toLowerCase() !== color.toLowerCase() || Number(anchoAnterior) !== Number(ancho))) {
@@ -2849,19 +3041,20 @@
             Number(r.ancho) === ancho
           );
 
+          const descRollo = ancho ? `${color} - ${ancho} cm` : color;
           if (existente) {
             const cantAnterior = existente.cantidad;
             const nuevaCantidad = Number(existente.cantidad || 0) + cantidad;
             existente.cantidad = nuevaCantidad;
             await updateDoc(doc(db, COL_ROLLOS, existente.id), { color, cantidad: nuevaCantidad, tipo: deleteField() });
-            await registrarEnHistorico("Rollo", color, `Incrementado stock de rollos (${ancho}cm): de ${cantAnterior} a ${nuevaCantidad} (+${cantidad} uds)`);
+            await registrarEnHistorico("Rollo", descRollo, `Incrementado stock de rollos: de ${cantAnterior} a ${nuevaCantidad} (+${cantidad} uds)`);
             cerrarModal("modal-rollo");
             Swal.fire({ icon: 'success', title: 'Stock Actualizado', text: `Ya existía con ancho ${ancho}cm. Se sumaron ${cantidad} uds (Total: ${nuevaCantidad})`, timer: 2000, showConfirmButton: false });
             await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
           } else {
             rollosList.push({ color, ancho, cantidad });
             await addDoc(collection(db, COL_ROLLOS), { color, ancho, cantidad, creado: serverTimestamp() });
-            await registrarEnHistorico("Rollo", color, `Añadido nuevo stock de rollos: ${cantidad} uds (${ancho}cm)`);
+            await registrarEnHistorico("Rollo", descRollo, `Añadido nuevo stock de rollos: ${cantidad} uds`);
             cerrarModal("modal-rollo");
             Swal.fire({ icon: 'success', title: 'Guardado', text: 'Rollo registrado correctamente', timer: 1400, showConfirmButton: false });
             await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
@@ -2881,10 +3074,11 @@
       const cantAnterior = r.cantidad;
       const colorVal = r.color || r.tipo || '';
       const anchoVal = r.ancho;
+      const descRollo = r.ancho ? `${colorVal} - ${r.ancho} cm` : colorVal;
       r.cantidad = nuevaCantidad;
       try {
         await updateDoc(doc(db, COL_ROLLOS, id), { cantidad: nuevaCantidad });
-        await registrarEnHistorico("Rollo", colorVal, `Modificado rollo: cantidad de ${cantAnterior} a ${nuevaCantidad}, ancho ${r.ancho}cm`);
+        await registrarEnHistorico("Rollo", descRollo, `Modificado rollo: cantidad de ${cantAnterior} a ${nuevaCantidad}`);
         await comprobarYEnviarAlertaWebhook("Rollo", colorVal, null, anchoVal, null);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
@@ -2918,10 +3112,11 @@
         if (nuevaCant === Number(r.cantidad || 0)) return;
         const cantAnterior = r.cantidad;
         const rollAncho = r.ancho;
+        const descRollo = r.ancho ? `${colorVal} - ${r.ancho} cm` : colorVal;
         r.cantidad = nuevaCant;
         try {
           await updateDoc(doc(db, COL_ROLLOS, id), { cantidad: nuevaCant });
-          await registrarEnHistorico("Rollo", colorVal, `Modificado rollo: cantidad de ${cantAnterior} a ${nuevaCant}, ancho ${r.ancho}cm`);
+          await registrarEnHistorico("Rollo", descRollo, `Modificado rollo: cantidad de ${cantAnterior} a ${nuevaCant}`);
           await comprobarYEnviarAlertaWebhook("Rollo", colorVal, null, rollAncho, null);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
@@ -2946,7 +3141,8 @@
           const idx = rollosList.findIndex(item => item.id === id);
           if (idx !== -1) rollosList.splice(idx, 1);
           await deleteDoc(doc(db, COL_ROLLOS, id));
-          await registrarEnHistorico("Rollo", color, `Eliminado registro de rollos (${ancho ? ancho + 'cm' : ''})`);
+          const descRollo = ancho ? `${color} - ${ancho} cm` : color;
+          await registrarEnHistorico("Rollo", descRollo, `Eliminado registro de rollos del almacén`);
           Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1200, showConfirmButton: false });
           await comprobarYEnviarAlertaWebhook("Rollo", color, null, ancho, null);
         } catch (err) {
@@ -3189,6 +3385,7 @@
       if (!item) return;
       document.getElementById("terminado-doc-id").value = item.id;
       document.getElementById("terminado-tipo").value = item.tipo || "";
+      document.getElementById("terminado-color").value = item.color || "";
       document.getElementById("terminado-cantidad").value = item.cantidad || 0;
       document.getElementById("modal-terminado-title").textContent = "Modificar Material Terminado";
       document.getElementById("modal-terminado").classList.remove("hidden");
@@ -3202,30 +3399,33 @@
       }
       const docId = document.getElementById("terminado-doc-id").value;
       const tipo = document.getElementById("terminado-tipo").value.trim();
+      const color = document.getElementById("terminado-color").value.trim();
       const cantidad = Number(document.getElementById("terminado-cantidad").value);
+      const descItem = color ? `${tipo} - ${color}` : tipo;
 
       try {
         if (docId) {
           const prev = stockTerminadoList.find(i => i.id === docId);
-          await updateDoc(doc(db, COL_STOCKTERMINADO, docId), { tipo, cantidad });
-          await registrarEnHistorico("Material Terminado", tipo, `Modificado stock terminado: cantidad de ${prev?.cantidad} a ${cantidad}`);
+          await updateDoc(doc(db, COL_STOCKTERMINADO, docId), { tipo, color, cantidad });
+          await registrarEnHistorico("Material Terminado", descItem, `Modificado stock terminado: cantidad de ${prev?.cantidad} a ${cantidad}`);
           cerrarModal("modal-terminado");
           Swal.fire({ icon: 'success', title: 'Guardado', text: 'Material terminado modificado correctamente', timer: 1400, showConfirmButton: false });
         } else {
-          // Si ya existe con ese tipo, se suma la cantidad
+          // Si ya existe con ese tipo Y ese color, se suma la cantidad
           const existente = stockTerminadoList.find(t => 
-            (t.tipo || "").trim().toLowerCase() === tipo.toLowerCase()
+            (t.tipo || "").trim().toLowerCase() === tipo.toLowerCase() &&
+            (t.color || "").trim().toLowerCase() === color.toLowerCase()
           );
 
           if (existente) {
             const nuevaCantidad = Number(existente.cantidad || 0) + cantidad;
             await updateDoc(doc(db, COL_STOCKTERMINADO, existente.id), { cantidad: nuevaCantidad });
-            await registrarEnHistorico("Material Terminado", tipo, `Incrementado stock de material terminado: de ${existente.cantidad} a ${nuevaCantidad} (+${cantidad} uds)`);
+            await registrarEnHistorico("Material Terminado", descItem, `Incrementado stock de material terminado: de ${existente.cantidad} a ${nuevaCantidad} (+${cantidad} uds)`);
             cerrarModal("modal-terminado");
-            Swal.fire({ icon: 'success', title: 'Stock Actualizado', text: `Ya existía "${tipo}". Se sumaron ${cantidad} uds (Total: ${nuevaCantidad})`, timer: 2000, showConfirmButton: false });
+            Swal.fire({ icon: 'success', title: 'Stock Actualizado', text: `Ya existía "${descItem}". Se sumaron ${cantidad} uds (Total: ${nuevaCantidad})`, timer: 2000, showConfirmButton: false });
           } else {
-            await addDoc(collection(db, COL_STOCKTERMINADO), { tipo, cantidad, creado: serverTimestamp() });
-            await registrarEnHistorico("Material Terminado", tipo, `Añadido nuevo material terminado: ${cantidad} uds`);
+            await addDoc(collection(db, COL_STOCKTERMINADO), { tipo, color, cantidad, creado: serverTimestamp() });
+            await registrarEnHistorico("Material Terminado", descItem, `Añadido nuevo material terminado: ${cantidad} uds`);
             cerrarModal("modal-terminado");
             Swal.fire({ icon: 'success', title: 'Guardado', text: 'Material terminado registrado correctamente', timer: 1400, showConfirmButton: false });
           }
@@ -3244,10 +3444,11 @@
       if (!item) return;
       const nuevaCantidad = Math.max(0, Number(item.cantidad || 0) + delta);
       if (nuevaCantidad === item.cantidad) return;
+      const descItem = item.color ? `${item.tipo} - ${item.color}` : (item.tipo || "-");
 
       try {
         await updateDoc(doc(db, COL_STOCKTERMINADO, id), { cantidad: nuevaCantidad });
-        await registrarEnHistorico("Material Terminado", item.tipo || "-", `Modificado stock terminado: cantidad de ${item.cantidad} a ${nuevaCantidad}`);
+        await registrarEnHistorico("Material Terminado", descItem, `Modificado stock terminado: cantidad de ${item.cantidad} a ${nuevaCantidad}`);
       } catch (err) {
         Swal.fire('Error', err.message, 'error');
       }
@@ -3260,9 +3461,10 @@
       }
       const item = stockTerminadoList.find(i => i.id === id);
       if (!item) return;
+      const descItem = item.color ? `${item.tipo} - ${item.color}` : (item.tipo || 'Material Terminado');
 
       const { value: cant } = await Swal.fire({
-        title: `Modificar cantidad (${item.tipo || 'Material Terminado'})`,
+        title: `Modificar cantidad (${descItem})`,
         input: 'number',
         inputLabel: 'Introduce la nueva cantidad exacta:',
         inputValue: cantidadActual,
@@ -3282,21 +3484,21 @@
         if (nuevaCant === Number(item.cantidad || 0)) return;
         try {
           await updateDoc(doc(db, COL_STOCKTERMINADO, id), { cantidad: nuevaCant });
-          await registrarEnHistorico("Material Terminado", item.tipo || "-", `Modificado stock terminado: cantidad de ${item.cantidad} a ${nuevaCant}`);
+          await registrarEnHistorico("Material Terminado", descItem, `Modificado stock terminado: cantidad de ${item.cantidad} a ${nuevaCant}`);
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
         }
       }
     };
 
-    window.eliminarStockTerminado = async function(id, tipo) {
+    window.eliminarStockTerminado = async function(id, label) {
       if (esEmpleado()) {
         Swal.fire('Acceso denegado', 'Los empleados solo tienen permiso de consulta en Material Terminado.', 'warning');
         return;
       }
       const res = await Swal.fire({
         title: '¿Eliminar material terminado?',
-        text: `Se borrará el registro de "${tipo}"`,
+        text: `Se borrará el registro de "${label || 'este material'}"`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#e11d48',
@@ -3307,7 +3509,7 @@
       if (res.isConfirmed) {
         try {
           await deleteDoc(doc(db, COL_STOCKTERMINADO, id));
-          await registrarEnHistorico("Material Terminado", tipo || '-', `Eliminado material terminado del almacén`);
+          await registrarEnHistorico("Material Terminado", label || '-', `Eliminado material terminado del almacén`);
           Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1200, showConfirmButton: false });
         } catch (err) {
           Swal.fire('Error', err.message, 'error');
