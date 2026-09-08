@@ -1114,30 +1114,35 @@
     isSupported().then(supported => {
       if (supported) {
         analytics = getAnalytics(app);
-        console.log("Google Analytics 4 inicializado correctamente:", firebaseConfig.measurementId);
       }
-    }).catch(e => console.warn("Google Analytics no disponible en este entorno:", e));
+    }).catch(() => {});
 
-    // Telemetría de lecturas por colección hacia Google Analytics (0 coste, 0 lecturas de base de datos)
+    // Telemetría directa de lecturas en Firestore hacia Google Analytics (limpio: 1 evento por lectura con su colección y email)
     function registrarLecturaAnalytics(coleccion, cantidad = 1, metodo = 'snapshot') {
       if (!cantidad || cantidad <= 0) return;
+      const colNorm = String(coleccion || 'desconocida');
+      const cantNum = Number(cantidad);
+      const userEmail = (currentUserData && currentUserData.email) 
+        ? currentUserData.email 
+        : (auth.currentUser && auth.currentUser.email ? auth.currentUser.email : 'anonimo');
+
+      // Nombre directo y limpio de la colección: lectura_stocktableros, lectura_inventario, lectura_historico, etc.
+      const eventName = 'lectura_' + colNorm.replace(/[^a-zA-Z0-9_]/g, '_');
+
       const payload = {
-        coleccion_firestore: String(coleccion || 'desconocida'),
-        cantidad_docs: Number(cantidad),
-        metodo_consulta: String(metodo),
-        usuario: (currentUserData && currentUserData.email) ? currentUserData.email : 'anonimo'
+        coleccion: colNorm,
+        cantidad_docs: cantNum,
+        value: cantNum,
+        usuario_email: userEmail
       };
 
       try {
         if (typeof window.gtag === 'function') {
-          window.gtag('event', 'firestore_lectura', payload);
+          window.gtag('event', eventName, payload);
         } else if (analytics) {
-          logEvent(analytics, 'firestore_lectura', payload);
+          logEvent(analytics, eventName, payload);
         }
-        console.log(`📊 [Analytics] Registrada lectura: ${coleccion} -> ${cantidad} docs (${metodo})`);
-      } catch (e) {
-        console.debug("Aviso telemetría Analytics:", e);
-      }
+      } catch (_) {}
     }
     window.registrarLecturaAnalytics = registrarLecturaAnalytics;
 
@@ -1319,6 +1324,11 @@
         iniciarListenersFirestore();
       } else {
         authContainer.classList.remove("hidden");
+        try {
+          if (typeof window.gtag === 'function') {
+            window.gtag('config', 'G-YK393TJ0W7', { user_id: null });
+          }
+        } catch (_) {}
         if (timeoutPausarListeners) { clearTimeout(timeoutPausarListeners); timeoutPausarListeners = null; }
         listenersPausadosPorInactividad = false;
         if (window.detenerTodosLosListeners) window.detenerTodosLosListeners();
@@ -1416,6 +1426,17 @@
       }
 
       window.currentUserData = currentUserData;
+
+      // Configurar usuario en Google Analytics de forma invisible (sin logs en F12)
+      try {
+        if (typeof window.gtag === 'function') {
+          const uEmail = currentUserData.email || user.email || '';
+          if (uEmail) {
+            window.gtag('set', 'user_properties', { usuario_email: uEmail });
+            window.gtag('config', 'G-YK393TJ0W7', { user_id: uEmail });
+          }
+        }
+      } catch (_) {}
 
       // Actualizar UI
       const fullName = `${currentUserData.nombre} ${currentUserData.apellido}`.trim();
