@@ -15,6 +15,16 @@
   <!-- SweetAlert2 for elegant alerts & prompts -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
+  <!-- Google tag (gtag.js) para Google Analytics 4 -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-YK393TJ0W7"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){ window.dataLayer.push(arguments); }
+    window.gtag = gtag;
+    gtag('js', new Date());
+    gtag('config', 'G-YK393TJ0W7', { send_page_view: true, debug_mode: true });
+  </script>
+
   <script>
     tailwind.config = {
       theme: {
@@ -1074,8 +1084,14 @@
       startAfter,
       startAt,
       onSnapshot, 
+      runTransaction,
       serverTimestamp 
     } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+    import { 
+      getAnalytics, 
+      logEvent, 
+      isSupported 
+    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics.js";
 
     // Configuración proporcionada
     const firebaseConfig = {
@@ -1092,6 +1108,38 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+
+    // Inicializar Google Analytics (100% gratuito, 0 lecturas en Firestore)
+    let analytics = null;
+    isSupported().then(supported => {
+      if (supported) {
+        analytics = getAnalytics(app);
+        console.log("Google Analytics 4 inicializado correctamente:", firebaseConfig.measurementId);
+      }
+    }).catch(e => console.warn("Google Analytics no disponible en este entorno:", e));
+
+    // Telemetría de lecturas por colección hacia Google Analytics (0 coste, 0 lecturas de base de datos)
+    function registrarLecturaAnalytics(coleccion, cantidad = 1, metodo = 'snapshot') {
+      if (!cantidad || cantidad <= 0) return;
+      const payload = {
+        coleccion_firestore: String(coleccion || 'desconocida'),
+        cantidad_docs: Number(cantidad),
+        metodo_consulta: String(metodo),
+        usuario: (currentUserData && currentUserData.email) ? currentUserData.email : 'anonimo'
+      };
+
+      try {
+        if (typeof window.gtag === 'function') {
+          window.gtag('event', 'firestore_lectura', payload);
+        } else if (analytics) {
+          logEvent(analytics, 'firestore_lectura', payload);
+        }
+        console.log(`📊 [Analytics] Registrada lectura: ${coleccion} -> ${cantidad} docs (${metodo})`);
+      } catch (e) {
+        console.debug("Aviso telemetría Analytics:", e);
+      }
+    }
+    window.registrarLecturaAnalytics = registrarLecturaAnalytics;
 
     // Estado Local en Memoria
     let currentUserData = {
@@ -1293,6 +1341,7 @@
       try {
         const userDocRef = doc(db, COL_USUARIOS, user.uid);
         const snap = await getDoc(userDocRef);
+        registrarLecturaAnalytics("usuarios", 1, "getDoc");
 
         let data = null;
         let docIdEncontrado = user.uid;
@@ -1303,9 +1352,11 @@
           // Buscar por query si el ID no es el UID (por mail o email)
           const qMail = query(collection(db, COL_USUARIOS), where("mail", "==", user.email));
           let querySnap = await getDocs(qMail);
+          registrarLecturaAnalytics("usuarios", querySnap.docs.length, "getDocs_email");
           if (querySnap.empty) {
             const qEmail = query(collection(db, COL_USUARIOS), where("email", "==", user.email));
             querySnap = await getDocs(qEmail);
+            registrarLecturaAnalytics("usuarios", querySnap.docs.length, "getDocs_email");
           }
 
           if (!querySnap.empty) {
@@ -1468,6 +1519,7 @@
     function iniciarListenerAlertasDashboard() {
       if (unsubAlertas) return;
       unsubAlertas = onSnapshot(doc(db, COL_CONFIGURACION, "alertas_activas"), (docSnap) => {
+        registrarLecturaAnalytics("configuracion/alertas_activas", 1, "snapshot");
         if (docSnap.exists()) {
           const data = docSnap.data();
           alertasActivasList = Array.isArray(data.items) ? data.items : [];
@@ -1493,7 +1545,12 @@
     // 1. BOBINAS BAJO DEMANDA
     function iniciarListenerBobinas() {
       if (unsubBobinas) return;
+      let snapshotInicial = true;
       unsubBobinas = onSnapshot(collection(db, COL_BOBINAS), (snapshot) => {
+        const cantDocs = snapshotInicial ? snapshot.docs.length : (snapshot.docChanges().length || 1);
+        snapshotInicial = false;
+        registrarLecturaAnalytics("stockbobinas", cantDocs, "snapshot");
+
         bobinasList = snapshot.docs.map(doc => {
           const d = doc.data();
           return { id: doc.id, ...d, color: d.color || d.tipo || '' };
@@ -1515,7 +1572,12 @@
     // 2. ROLLOS BAJO DEMANDA
     function iniciarListenerRollos() {
       if (unsubRollos) return;
+      let snapshotInicial = true;
       unsubRollos = onSnapshot(collection(db, COL_ROLLOS), (snapshot) => {
+        const cantDocs = snapshotInicial ? snapshot.docs.length : (snapshot.docChanges().length || 1);
+        snapshotInicial = false;
+        registrarLecturaAnalytics("stockrollos", cantDocs, "snapshot");
+
         rollosList = snapshot.docs.map(doc => {
           const d = doc.data();
           return { id: doc.id, ...d, color: d.color || d.tipo || '' };
@@ -1537,7 +1599,12 @@
     // 3. TABLEROS BAJO DEMANDA
     function iniciarListenerTableros() {
       if (unsubTableros) return;
+      let snapshotInicial = true;
       unsubTableros = onSnapshot(collection(db, COL_TABLEROS), (snapshot) => {
+        const cantDocs = snapshotInicial ? snapshot.docs.length : (snapshot.docChanges().length || 1);
+        snapshotInicial = false;
+        registrarLecturaAnalytics("stocktableros", cantDocs, "snapshot");
+
         tablerosList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (window.renderTableros) renderTableros();
         if (window.pestañaActiva === 'inventario' && window.renderInventario) renderInventario();
@@ -1556,7 +1623,12 @@
     // 4. INVENTARIO BAJO DEMANDA (CON SEMÁFORO DE VERSIÓN)
     function iniciarListenerInventario() {
       if (unsubInventario) return;
+      let snapshotInicial = true;
       unsubInventario = onSnapshot(collection(db, COL_INVENTARIO), (snapshot) => {
+        const cantDocs = snapshotInicial ? snapshot.docs.length : (snapshot.docChanges().length || 1);
+        snapshotInicial = false;
+        registrarLecturaAnalytics("inventario", cantDocs, "snapshot");
+
         inventarioList = snapshot.docs.map(doc => {
           const d = doc.data();
           return { id: doc.id, ...d, color: d.color || d.tipo || '' };
@@ -1581,6 +1653,7 @@
       if (inventarioAlDia) return inventarioList;
       try {
         const snap = await getDocs(collection(db, COL_INVENTARIO));
+        registrarLecturaAnalytics("inventario", snap.docs.length, "getDocs");
         inventarioList = snap.docs.map(doc => {
           const d = doc.data();
           return { id: doc.id, ...d, color: d.color || d.tipo || '' };
@@ -1594,79 +1667,146 @@
     }
     window.asegurarInventarioCargado = asegurarInventarioCargado;
 
-    // Sincronizar un único artículo en alertas_activas (¡0 lecturas de stock!)
-    async function sincronizarAlertaArticulo(articulo, color, largo, ancho, grosor, cantidadActual, reposicion, invId) {
+    // Sincronizar un único artículo en alertas_activas mediante TRANSACCIÓN ATÓMICA (previene cualquier colisión entre usuarios)
+    async function sincronizarAlertaArticulo(articulo, color, largo, ancho, grosor, cantidadActual, reposicion, invId, incrementarVersionInv = false) {
       const artNorm = (articulo || '').trim().toLowerCase();
       const colNorm = (color || '').trim().toLowerCase();
       const tLargo = (largo !== undefined && largo !== null && largo !== '') ? Number(largo) : null;
       const tAncho = (ancho !== undefined && ancho !== null && ancho !== '') ? Number(ancho) : null;
       const tGrosor = (grosor !== undefined && grosor !== null && grosor !== '') ? Number(grosor) : null;
 
-      let idx = alertasActivasList.findIndex(a => {
-        if (invId && a.id === invId) return true;
-        if ((a.articulo || '').trim().toLowerCase() !== artNorm) return false;
-        if (artNorm === 'bobina') {
-          return (a.color || a.tipo || '').trim().toLowerCase() === colNorm;
-        } else if (artNorm === 'rollo') {
-          const aAncho = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
-          return (a.color || a.tipo || '').trim().toLowerCase() === colNorm && (tAncho === null || aAncho === tAncho);
-        } else if (artNorm === 'tablero') {
-          const aL = Number(a.largo);
-          const aG = Number(a.grosor);
-          const aA = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
-          return aL === tLargo && aG === tGrosor && (tAncho === null || aA === tAncho);
-        }
-        return false;
-      });
+      const alertaRef = doc(db, COL_CONFIGURACION, "alertas_activas");
 
-      const bajoMinimo = cantidadActual < reposicion && reposicion > 0;
-
-      if (bajoMinimo) {
-        const tipoLabel = artNorm === 'tablero'
-          ? (tAncho ? `${tLargo} x ${tAncho} x ${tGrosor} mm` : `${tLargo} x ${tGrosor} mm`)
-          : (artNorm === 'rollo' && tAncho ? `${color} - ${tAncho} cm` : color);
-
-        const alertData = {
-          id: invId || (idx >= 0 ? alertasActivasList[idx].id : Date.now().toString()),
-          articulo: articulo,
-          tipo: tipoLabel,
-          color: color || '',
-          ancho: tAncho,
-          largo: tLargo,
-          grosor: tGrosor,
-          stockActual: cantidadActual,
-          stockReposicion: reposicion,
-          faltante: reposicion - cantidadActual
-        };
-
-        if (idx >= 0) {
-          alertasActivasList[idx] = { ...alertasActivasList[idx], ...alertData };
-        } else {
-          alertasActivasList.push(alertData);
-        }
-      } else {
-        // Si ya no está bajo mínimo, eliminarlo de la lista de alertas
-        if (idx >= 0) {
-          alertasActivasList.splice(idx, 1);
-        }
-      }
-
-      // Actualizar UI local inmediatamente
-      actualizarKPIsYAlertas();
-
-      // Persistir en Firestore en alertas_activas (1 sola escritura, 0 lecturas)
       try {
-        await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
-          items: alertasActivasList,
-          total: alertasActivasList.length,
-          actualizado: serverTimestamp(),
-          actualizadoPor: currentUserData.nombre || "Usuario"
-        }, { merge: true });
+        await runTransaction(db, async (transaction) => {
+          const docSnap = await transaction.get(alertaRef);
+          registrarLecturaAnalytics("configuracion/alertas_activas", 1, "transaction");
+          let itemsServidor = [];
+          let versionInv = versionInventarioServidor;
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            itemsServidor = Array.isArray(data.items) ? [...data.items] : [];
+            if (data.version_inventario !== undefined) {
+              versionInv = Number(data.version_inventario || 0);
+            }
+          }
+
+          if (incrementarVersionInv) {
+            versionInv += 1;
+            versionInventarioServidor = versionInv;
+            versionInventarioCargada = versionInv;
+          }
+
+          let idx = itemsServidor.findIndex(a => {
+            if (invId && a.id === invId) return true;
+            if ((a.articulo || '').trim().toLowerCase() !== artNorm) return false;
+            if (artNorm === 'bobina') {
+              return (a.color || a.tipo || '').trim().toLowerCase() === colNorm;
+            } else if (artNorm === 'rollo') {
+              const aAncho = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
+              return (a.color || a.tipo || '').trim().toLowerCase() === colNorm && (tAncho === null || aAncho === tAncho);
+            } else if (artNorm === 'tablero') {
+              const aL = Number(a.largo);
+              const aG = Number(a.grosor);
+              const aA = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
+              return aL === tLargo && aG === tGrosor && (tAncho === null || aA === tAncho);
+            }
+            return false;
+          });
+
+          const bajoMinimo = cantidadActual < reposicion && reposicion > 0;
+
+          if (bajoMinimo) {
+            const tipoLabel = artNorm === 'tablero'
+              ? (tAncho ? `${tLargo} x ${tAncho} x ${tGrosor} mm` : `${tLargo} x ${tGrosor} mm`)
+              : (artNorm === 'rollo' && tAncho ? `${color} - ${tAncho} cm` : color);
+
+            const alertData = {
+              id: invId || (idx >= 0 ? itemsServidor[idx].id : Date.now().toString()),
+              articulo: articulo,
+              tipo: tipoLabel,
+              color: color || '',
+              ancho: tAncho,
+              largo: tLargo,
+              grosor: tGrosor,
+              stockActual: cantidadActual,
+              stockReposicion: reposicion,
+              faltante: reposicion - cantidadActual
+            };
+
+            if (idx >= 0) {
+              itemsServidor[idx] = { ...itemsServidor[idx], ...alertData };
+            } else {
+              itemsServidor.push(alertData);
+            }
+          } else {
+            // Si ya no está bajo mínimo, eliminarlo de la lista de alertas
+            if (idx >= 0) {
+              itemsServidor.splice(idx, 1);
+            }
+          }
+
+          transaction.set(alertaRef, {
+            items: itemsServidor,
+            total: itemsServidor.length,
+            version_inventario: versionInv,
+            actualizado: serverTimestamp(),
+            actualizadoPor: currentUserData.nombre || "Usuario"
+          }, { merge: true });
+
+          alertasActivasList = itemsServidor;
+        });
+
+        // Actualizar UI local inmediatamente
+        actualizarKPIsYAlertas();
       } catch (e) {
-        console.warn("Aviso guardando alertas_activas:", e);
+        console.error("Error en transacción atómica de alertas_activas:", e);
       }
     }
     window.sincronizarAlertaArticulo = sincronizarAlertaArticulo;
+
+    async function retirarAlertaArticulo(invId, incrementarVersionInv = false) {
+      const alertaRef = doc(db, COL_CONFIGURACION, "alertas_activas");
+      try {
+        await runTransaction(db, async (transaction) => {
+          const docSnap = await transaction.get(alertaRef);
+          registrarLecturaAnalytics("configuracion/alertas_activas", 1, "transaction");
+          let itemsServidor = [];
+          let versionInv = versionInventarioServidor;
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            itemsServidor = Array.isArray(data.items) ? [...data.items] : [];
+            if (data.version_inventario !== undefined) {
+              versionInv = Number(data.version_inventario || 0);
+            }
+          }
+
+          if (incrementarVersionInv) {
+            versionInv += 1;
+            versionInventarioServidor = versionInv;
+            versionInventarioCargada = versionInv;
+          }
+
+          itemsServidor = itemsServidor.filter(a => a.id !== invId);
+
+          transaction.set(alertaRef, {
+            items: itemsServidor,
+            total: itemsServidor.length,
+            version_inventario: versionInv,
+            actualizado: serverTimestamp(),
+            actualizadoPor: currentUserData.nombre || "Usuario"
+          }, { merge: true });
+
+          alertasActivasList = itemsServidor;
+        });
+        actualizarKPIsYAlertas();
+      } catch (e) {
+        console.error("Error en transacción al retirar alerta:", e);
+      }
+    }
+    window.retirarAlertaArticulo = retirarAlertaArticulo;
 
     // Desconectar absolutamente todos los listeners activos
     function detenerTodosLosListeners() {
@@ -1683,43 +1823,19 @@
     }
     window.detenerTodosLosListeners = detenerTodosLosListeners;
 
-    // Gestión bajo demanda de listeners según la pestaña activa
+    // Gestión bajo demanda de listeners según la pestaña activa (Carga bajo demanda y persistencia en memoria durante la sesión activa)
     window.conectarListenersSegunPestaña = function(tabName) {
       // El listener de alertas permanece siempre conectado para el badge y avisos globales (coste: 1 única lectura de doc)
       iniciarListenerAlertasDashboard();
 
       if (tabName === 'dashboard' || tabName === 'panel') {
-        detenerListenerBobinas();
-        detenerListenerRollos();
-        detenerListenerTableros();
-        detenerListenerInventario();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
+        // En dashboard no necesitamos conectar colecciones completas si aún no se han visitado
       } else if (tabName === 'bobinas') {
         iniciarListenerBobinas();
-        detenerListenerRollos();
-        detenerListenerTableros();
-        detenerListenerInventario();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
       } else if (tabName === 'rollos') {
         iniciarListenerRollos();
-        detenerListenerBobinas();
-        detenerListenerTableros();
-        detenerListenerInventario();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
       } else if (tabName === 'tableros') {
         iniciarListenerTableros();
-        detenerListenerBobinas();
-        detenerListenerRollos();
-        detenerListenerInventario();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
       } else if (tabName === 'inventario') {
         // Semáforo de inventario: si ya tenemos datos y la versión no ha cambiado, no descargamos de nuevo
         const inventarioAlDia = inventarioList.length > 0 && (versionInventarioCargada === versionInventarioServidor);
@@ -1728,35 +1844,11 @@
         } else {
           iniciarListenerInventario();
         }
-        iniciarListenerBobinas();
-        iniciarListenerRollos();
-        iniciarListenerTableros();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
       } else if (tabName === 'terminado') {
-        detenerListenerBobinas();
-        detenerListenerRollos();
-        detenerListenerTableros();
-        detenerListenerInventario();
         if (window.iniciarListenerStockTerminado) window.iniciarListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
       } else if (tabName === 'historico') {
-        detenerListenerBobinas();
-        detenerListenerRollos();
-        detenerListenerTableros();
-        detenerListenerInventario();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
         if (window.iniciarListenerHistorico) window.iniciarListenerHistorico();
-        if (window.detenerListenerGestion) window.detenerListenerGestion();
       } else if (tabName === 'gestion' || tabName === 'usuarios') {
-        detenerListenerBobinas();
-        detenerListenerRollos();
-        detenerListenerTableros();
-        detenerListenerInventario();
-        if (window.detenerListenerStockTerminado) window.detenerListenerStockTerminado();
-        if (window.detenerListenerHistorico) window.detenerListenerHistorico();
         if (window.iniciarListenerGestion) window.iniciarListenerGestion();
       }
     };
@@ -1776,6 +1868,7 @@
       // 1. USUARIOS (solo si admin)
       if (esAdmin() && !unsubUsuarios) {
         unsubUsuarios = onSnapshot(collection(db, COL_USUARIOS), (snapshot) => {
+          registrarLecturaAnalytics("usuarios", snapshot.docChanges().length || snapshot.docs.length, "snapshot");
           usuariosList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
           // Asegurar que el usuario activo siempre aparezca en usuariosList
@@ -1817,6 +1910,7 @@
       // 2. CONFIGURACIÓN (Mails alerta de stock)
       if (!unsubConfig) {
         unsubConfig = onSnapshot(collection(db, COL_CONFIGURACION), (snapshot) => {
+          registrarLecturaAnalytics("configuracion", snapshot.docChanges().length || snapshot.docs.length, "snapshot");
           if (!snapshot.empty) {
             const foundDoc = snapshot.docs.find(d => d.data().mailsalertastock !== undefined) || snapshot.docs.find(d => d.id === "alertas") || snapshot.docs[0];
             window.docConfigAlertasId = foundDoc.id;
@@ -2348,6 +2442,7 @@
             q = query(collection(db, COL_ROLLOS), where("color", "==", color), limit(1));
           }
           const snap = await getDocs(q);
+          registrarLecturaAnalytics("stockrollos", snap.docs.length, "getDocs_directo");
           if (!snap.empty) {
             const d = snap.docs[0];
             rollo = { id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' };
@@ -2384,6 +2479,7 @@
               q = query(collection(db, COL_TABLEROS), where("largo", "==", lNum), where("grosor", "==", gNum), limit(1));
             }
             const snap = await getDocs(q);
+            registrarLecturaAnalytics("stocktableros", snap.docs.length, "getDocs_directo");
             if (!snap.empty) {
               const d = snap.docs[0];
               tablero = { id: d.id, ...d.data() };
@@ -2668,8 +2764,10 @@
         if (artNorm === 'bobina') {
           try {
             let snapB = await getDocs(query(collection(db, COL_BOBINAS), where("color", "==", color)));
+            registrarLecturaAnalytics("stockbobinas", snapB.docs.length, "getDocs_color");
             if (snapB.empty) {
               const snapLegacy = await getDocs(query(collection(db, COL_BOBINAS), where("tipo", "==", color)));
+              registrarLecturaAnalytics("stockbobinas", snapLegacy.docs.length, "getDocs_color_legacy");
               if (!snapLegacy.empty) snapB = snapLegacy;
             }
             const realBobinas = snapB.docs.map(d => ({ id: d.id, ...d.data(), color: d.data().color || d.data().tipo || '' }));
@@ -2719,6 +2817,7 @@
           if (destinatarios.length === 0) {
             try {
               const cfgSnap = await getDocs(collection(db, COL_CONFIGURACION));
+              registrarLecturaAnalytics("configuracion", cfgSnap.docs.length, "getDocs_config");
               if (!cfgSnap.empty) {
                 const foundDoc = cfgSnap.docs.find(d => d.data().mailsalertastock !== undefined) || cfgSnap.docs[0];
                 const d = foundDoc.data();
@@ -2889,22 +2988,61 @@
       let html = "";
       items.forEach(item => {
         const reposicion = Number(item.stockreposicion || 0);
-        const desglose = calcularStockTotalArticulo(item.articulo, item.color || item.tipo, item.largo, item.ancho, item.grosor);
-        const bajoStock = desglose.total < reposicion;
         const tipoMostrar = obtenerTextoColorMedidas(item);
+        const artNorm = (item.articulo || '').trim().toLowerCase();
+        const colNorm = (item.color || item.tipo || '').trim().toLowerCase();
+        const tAncho = (item.ancho !== undefined && item.ancho !== null && item.ancho !== '') ? Number(item.ancho) : null;
+        const tLargo = (item.largo !== undefined && item.largo !== null && item.largo !== '') ? Number(item.largo) : null;
+        const tGrosor = (item.grosor !== undefined && item.grosor !== null && item.grosor !== '') ? Number(item.grosor) : null;
+
+        // Comprobar si está en la lista central de alertas (¡0 lecturas adicionales, siempre en memoria!)
+        const alerta = alertasActivasList.find(a => {
+          if (a.id && a.id === item.id) return true;
+          if ((a.articulo || '').trim().toLowerCase() !== artNorm) return false;
+          if (artNorm === 'bobina') {
+            return (a.color || a.tipo || '').trim().toLowerCase() === colNorm;
+          } else if (artNorm === 'rollo') {
+            const aAncho = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
+            return (a.color || a.tipo || '').trim().toLowerCase() === colNorm && (tAncho === null || aAncho === tAncho);
+          } else if (artNorm === 'tablero') {
+            const aL = Number(a.largo);
+            const aG = Number(a.grosor);
+            const aA = (a.ancho !== undefined && a.ancho !== null && a.ancho !== '') ? Number(a.ancho) : null;
+            return aL === tLargo && aG === tGrosor && (tAncho === null || aA === tAncho);
+          }
+          return false;
+        });
+
+        const bajoStock = !!alerta;
+        let stockTexto = "";
+        if (bajoStock) {
+          stockTexto = `${alerta.stockActual} uds`;
+        } else if (reposicion === 0) {
+          stockTexto = "-";
+        } else {
+          // Si las colecciones de stock ya están en memoria local, mostramos el número exacto
+          const desglose = calcularStockTotalArticulo(item.articulo, item.color || item.tipo, item.largo, item.ancho, item.grosor);
+          if (desglose.total > 0) {
+            stockTexto = `${desglose.total} uds`;
+          } else {
+            stockTexto = `≥ ${reposicion} uds`;
+          }
+        }
 
         html += `
           <tr class="hover:bg-slate-50 transition border-b border-slate-100">
             <td class="py-3 px-4 font-semibold text-slate-900">${escapeHtml(item.articulo)}</td>
             <td class="py-3 px-4"><span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-medium">${escapeHtml(tipoMostrar)}</span></td>
             <td class="py-3 px-4 text-center font-semibold text-slate-700">${reposicion} uds</td>
-            <td class="py-3 px-4 text-center font-bold text-sm ${bajoStock ? 'text-rose-600' : 'text-emerald-700'}">
-              ${desglose.total} uds
+            <td class="py-3 px-4 text-center font-bold text-sm ${bajoStock ? 'text-rose-600' : (reposicion === 0 ? 'text-slate-400' : 'text-emerald-700')}">
+              ${stockTexto}
             </td>
             <td class="py-3 px-4 text-center">
               ${bajoStock 
-                ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700"><i data-lucide="alert-circle" class="w-3 h-3"></i> Reponer</span>' 
-                : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700"><i data-lucide="check" class="w-3 h-3"></i> Óptimo</span>'
+                ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700"><i data-lucide="alert-circle" class="w-3 h-3"></i> Reponer (${alerta.faltante} faltantes)</span>` 
+                : (reposicion === 0
+                    ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500">Sin mínimo</span>'
+                    : '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700"><i data-lucide="check" class="w-3 h-3"></i> Óptimo</span>')
               }
             </td>
             ${adminActivo ? `
@@ -3151,7 +3289,12 @@
     // GESTIÓN BAJO DEMANDA: MATERIAL TERMINADO
     window.iniciarListenerStockTerminado = function() {
       if (unsubTerminado) return;
+      let snapshotInicial = true;
       unsubTerminado = onSnapshot(collection(db, COL_STOCKTERMINADO), (snapshot) => {
+        const cantDocs = snapshotInicial ? snapshot.docs.length : (snapshot.docChanges().length || 1);
+        snapshotInicial = false;
+        registrarLecturaAnalytics("stockterminado", cantDocs, "snapshot");
+
         stockTerminadoList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         renderStockTerminado();
       }, (err) => console.error("Error en stockterminado snapshot:", err));
@@ -3290,6 +3433,7 @@
         unsubHistorico = onSnapshot(q, (snapshot) => {
           cargandoHistorico = false;
           const docs = snapshot.docs;
+          registrarLecturaAnalytics("historico", docs.length, "snapshot_paginado");
           if (docs.length > REGISTROS_POR_PAGINA_HISTORICO) {
             hayMasHistorico = true;
             historicoDocsSnapshot = docs.slice(0, REGISTROS_POR_PAGINA_HISTORICO);
@@ -3311,6 +3455,7 @@
           console.warn("Consulta histórico ordenada falló (posible falta de índice), reintentando fallback...", err);
           const qFallback = query(collection(db, COL_HISTORICO), limit(REGISTROS_POR_PAGINA_HISTORICO));
           unsubHistorico = onSnapshot(qFallback, (snapFallback) => {
+            registrarLecturaAnalytics("historico", snapFallback.docs.length, "snapshot_paginado_fallback");
             historicoList = snapFallback.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             hayMasHistorico = snapFallback.docs.length >= REGISTROS_POR_PAGINA_HISTORICO;
             paginaHistoricoActual = 1;
@@ -3638,49 +3783,9 @@
           const desglose = calcularStockTotalArticulo(articulo, colorFinal, largo, ancho, grosor);
           const stockActual = desglose.total;
           const reposicionNum = Number(stockreposicion || 0);
-          const idxAlerta = alertasActivasList.findIndex(a => a.id === docId);
 
-          if (reposicionNum > 0 && stockActual < reposicionNum) {
-            const tipoLabel = (articulo === 'Tablero') 
-              ? (ancho ? `${largo} x ${ancho} x ${grosor} mm` : `${largo} x ${grosor} mm`)
-              : (articulo === 'Rollo' && ancho ? `${colorFinal} - ${ancho} cm` : colorFinal);
-            const alertaData = {
-              id: docId,
-              articulo: articulo,
-              tipo: tipoLabel,
-              color: colorFinal,
-              ancho: ancho,
-              largo: largo,
-              grosor: grosor,
-              stockActual: stockActual,
-              stockReposicion: reposicionNum,
-              faltante: reposicionNum - stockActual
-            };
-            if (idxAlerta >= 0) {
-              alertasActivasList[idxAlerta] = alertaData;
-            } else {
-              alertasActivasList.push(alertaData);
-            }
-          } else {
-            // Si el stock actual es suficiente o reposición es 0, quitar de alertas
-            if (idxAlerta >= 0) {
-              alertasActivasList.splice(idxAlerta, 1);
-            }
-          }
-
-          // Incrementar semáforo de versión de inventario
-          versionInventarioServidor += 1;
-          versionInventarioCargada = versionInventarioServidor;
-
-          // Guardar alertas y nueva versión en el documento único central (1 sola escritura, 0 lecturas)
-          await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
-            items: alertasActivasList,
-            total: alertasActivasList.length,
-            version_inventario: versionInventarioServidor,
-            actualizado: serverTimestamp(),
-            actualizadoPor: currentUserData.nombre || "Usuario"
-          }, { merge: true });
-          actualizarKPIsYAlertas();
+          // Sincronización atómica de alerta y versión de inventario mediante transacción
+          await sincronizarAlertaArticulo(articulo, colorFinal, largo, ancho, grosor, stockActual, reposicionNum, docId, true);
 
           const anchoVal = (articulo.toLowerCase() === "rollo" && ancho) ? `${ancho} cm` : '';
           const descColorMedida = anchoVal ? `${color} - ${anchoVal}` : (tipo || color);
@@ -3714,35 +3819,8 @@
           const stockActual = desglose.total;
           const reposicionNum = Number(stockreposicion || 0);
 
-          if (reposicionNum > 0 && stockActual < reposicionNum) {
-            const tipoLabel = (articulo === 'Tablero') 
-              ? (ancho ? `${largo} x ${ancho} x ${grosor} mm` : `${largo} x ${grosor} mm`)
-              : (articulo === 'Rollo' && ancho ? `${colorFinal} - ${ancho} cm` : colorFinal);
-            alertasActivasList.push({
-              id: newId,
-              articulo: articulo,
-              tipo: tipoLabel,
-              color: colorFinal,
-              ancho: ancho,
-              largo: largo,
-              grosor: grosor,
-              stockActual: stockActual,
-              stockReposicion: reposicionNum,
-              faltante: reposicionNum - stockActual
-            });
-          }
-
-          versionInventarioServidor += 1;
-          versionInventarioCargada = versionInventarioServidor;
-
-          await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
-            items: alertasActivasList,
-            total: alertasActivasList.length,
-            version_inventario: versionInventarioServidor,
-            actualizado: serverTimestamp(),
-            actualizadoPor: currentUserData.nombre || "Usuario"
-          }, { merge: true });
-          actualizarKPIsYAlertas();
+          // Sincronización atómica de alerta y versión de inventario mediante transacción
+          await sincronizarAlertaArticulo(articulo, colorFinal, largo, ancho, grosor, stockActual, reposicionNum, newId, true);
 
           const anchoVal = (articulo.toLowerCase() === "rollo" && ancho) ? `${ancho} cm` : '';
           const descColorMedida = anchoVal ? `${color} - ${anchoVal}` : (tipo || color);
@@ -3781,19 +3859,9 @@
         try {
           await deleteDoc(doc(db, COL_INVENTARIO, id));
           inventarioList = inventarioList.filter(i => i.id !== id);
-          alertasActivasList = alertasActivasList.filter(a => a.id !== id);
-          
-          versionInventarioServidor += 1;
-          versionInventarioCargada = versionInventarioServidor;
 
-          await setDoc(doc(db, COL_CONFIGURACION, "alertas_activas"), {
-            items: alertasActivasList,
-            total: alertasActivasList.length,
-            version_inventario: versionInventarioServidor,
-            actualizado: serverTimestamp(),
-            actualizadoPor: currentUserData.nombre || "Usuario"
-          }, { merge: true });
-          actualizarKPIsYAlertas();
+          // Retirar alerta atómicamente e incrementar versión de inventario
+          await retirarAlertaArticulo(id, true);
           if (window.renderInventario) renderInventario();
 
           await registrarEnHistorico(articulo, descColorMedida, `Eliminado artículo de inventario base`);
@@ -4039,6 +4107,7 @@
             try {
               const qR = query(collection(db, COL_ROLLOS), where("color", "==", color), where("ancho", "==", ancho), limit(1));
               const snapR = await getDocs(qR);
+              registrarLecturaAnalytics("stockrollos", snapR.docs.length, "getDocs_existente");
               if (!snapR.empty) {
                 const docR = snapR.docs[0];
                 existente = { id: docR.id, ...docR.data(), color: docR.data().color || docR.data().tipo || '' };
@@ -4257,6 +4326,7 @@
                 qT = query(collection(db, COL_TABLEROS), where("largo", "==", largo), where("grosor", "==", grosor), limit(1));
               }
               const snapT = await getDocs(qT);
+              registrarLecturaAnalytics("stocktableros", snapT.docs.length, "getDocs_existente");
               if (!snapT.empty) {
                 const docT = snapT.docs[0];
                 existente = { id: docT.id, ...docT.data() };
