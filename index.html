@@ -3407,6 +3407,7 @@
     let hayMasHistorico = false;
 
     window.iniciarListenerHistorico = function() {
+      if (unsubHistorico) return;
       // Cargar la página actual bajo demanda con limit(20)
       cargarPaginaHistorico(paginaHistoricoActual);
     };
@@ -3451,10 +3452,13 @@
           );
         }
 
+        let snapshotInicial = true;
         unsubHistorico = onSnapshot(q, (snapshot) => {
           cargandoHistorico = false;
           const docs = snapshot.docs;
-          registrarLecturaAnalytics("historico", docs.length, "snapshot_paginado");
+          const cantDocs = snapshotInicial ? docs.length : (snapshot.docChanges().length || 1);
+          snapshotInicial = false;
+          registrarLecturaAnalytics("historico", cantDocs, "snapshot_paginado");
           if (docs.length > REGISTROS_POR_PAGINA_HISTORICO) {
             hayMasHistorico = true;
             historicoDocsSnapshot = docs.slice(0, REGISTROS_POR_PAGINA_HISTORICO);
